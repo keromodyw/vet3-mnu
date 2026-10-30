@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, Plus, Trash2, Edit, FileText, Menu, X, Home, LogOut, UserCog, Calendar, FileSpreadsheet } from 'lucide-react'
+import { ArrowRight, Plus, Trash2, Edit, FileText, Menu, X, Home, LogOut, UserCog, Calendar, FileSpreadsheet } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
+import { cairoLocalToISO, isoToCairoLocal } from '../../lib/time'
 
 interface Exam {
   id: string
@@ -57,7 +58,7 @@ export default function AdminExams() {
     try {
       let publish_at = null
       if (formData.publish_now === 'schedule' && formData.publish_date) {
-        publish_at = new Date(formData.publish_date).toISOString()
+        publish_at = cairoLocalToISO(formData.publish_date)
       }
 
       if (editingId) {
@@ -95,7 +96,7 @@ export default function AdminExams() {
       name: exam.name, 
       description: exam.description || '',
       publish_now: exam.publish_at ? 'schedule' : 'now',
-      publish_date: exam.publish_at ? new Date(exam.publish_at).toISOString().slice(0, 16) : ''
+      publish_date: exam.publish_at ? isoToCairoLocal(exam.publish_at) : ''
     })
     setEditingId(exam.id)
     setShowModal(true)
@@ -178,7 +179,7 @@ export default function AdminExams() {
         <main className="p-4 sm:p-6 lg:p-8">
           <div className="flex items-center justify-between mb-6">
             <button onClick={() => navigate('/admin/exams')} className="flex items-center gap-2 text-slate-600 hover:text-slate-900">
-              <ArrowLeft className="w-4 h-4" />
+              <ArrowRight className="w-4 h-4" />
               <span>العودة للمواد</span>
             </button>
             <button onClick={() => { setShowModal(true); setFormData({ name: '', description: '', publish_now: 'now', publish_date: '' }); setEditingId(null) }} className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 text-white rounded-xl">
@@ -276,7 +277,7 @@ export default function AdminExams() {
                       checked={formData.publish_now === 'schedule'}
                       onChange={(e) => setFormData({ ...formData, publish_now: e.target.value })}
                     />
-                    <span>وقت تاني</span>
+                    <span>وقت تاني (بتوقيت القاهرة)</span>
                   </label>
                   {formData.publish_now === 'schedule' && (
                     <input

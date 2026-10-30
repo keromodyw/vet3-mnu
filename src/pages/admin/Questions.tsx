@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, Plus, Trash2, Edit, FileSpreadsheet } from 'lucide-react'
+import { ArrowRight, Plus, Trash2, Edit, FileSpreadsheet } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 
 interface Question {
@@ -107,7 +107,7 @@ export default function AdminQuestions() {
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               <button onClick={() => navigate(-1)} className="p-2 hover:bg-slate-100 rounded-lg">
-                <ArrowLeft className="w-5 h-5" />
+                <ArrowRight className="w-5 h-5" />
               </button>
               <div>
                 <h1 className="text-lg font-bold text-slate-900">إدارة الأسئلة</h1>

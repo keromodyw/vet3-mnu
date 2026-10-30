@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { ArrowLeft, Upload, FileSpreadsheet, Download } from 'lucide-react'
+import { ArrowRight, Upload, FileSpreadsheet, Download } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import * as XLSX from 'xlsx'
 
@@ -99,7 +99,7 @@ export default function AdminImport() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="flex items-center gap-3">
             <button onClick={() => navigate(-1)} className="p-2 hover:bg-slate-100 rounded-lg">
-              <ArrowLeft className="w-5 h-5" />
+              <ArrowRight className="w-5 h-5" />
             </button>
             <h1 className="text-lg font-bold text-slate-900">استيراد الأسئلة من ملف Excel</h1>
           </div>

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ArrowLeft, Plus, Trash2, Edit, Folder, Upload, Menu, X, Home, LogOut, UserCog } from 'lucide-react'
+import { ArrowRight, Plus, Trash2, Edit, Folder, Upload, Menu, X, Home, LogOut, UserCog } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 
 interface Course {
@@ -199,7 +199,7 @@ export default function AdminCourses() {
         <main className="p-4 sm:p-6 lg:p-8">
           <div className="flex items-center justify-between mb-6">
             <button onClick={() => navigate('/admin/exams')} className="flex items-center gap-2 text-slate-600 hover:text-slate-900">
-              <ArrowLeft className="w-4 h-4" />
+              <ArrowRight className="w-4 h-4" />
               <span>العودة</span>
             </button>
             <button onClick={() => { setShowModal(true); setFormData({ name: '' }); setEditingId(null); setImageFile(null); setImagePreview('') }} className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 text-white rounded-xl">
