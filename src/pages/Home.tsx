@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { BookOpen, Search, ArrowLeft, Download, FileText } from 'lucide-react'
 import { supabase } from '../lib/supabase'
+import { serverNow, syncServerTime } from '../lib/time'
 
 interface Exam {
   id: string
@@ -10,6 +11,7 @@ interface Exam {
   description?: string | null
   image_url?: string | null
   course_id?: string | null
+  publish_at?: string | null
   created_at: string
 }
 
@@ -31,10 +33,14 @@ export default function Home() {
   const [questionCounts, setQuestionCounts] = useState<Record<string, number>>({})
   const [showPdfModal, setShowPdfModal] = useState(false)
   const [selectedExamForPdf, setSelectedExamForPdf] = useState<Exam | null>(null)
+  const [, setTick] = useState(0)
 
   useEffect(() => {
+    syncServerTime().then(() => setTick(t => t + 1))
     fetchExams()
     fetchCourses()
+    const id = setInterval(() => setTick(t => t + 1), 30000)
+    return () => clearInterval(id)
   }, [])
 
   const fetchExams = async () => {
@@ -78,7 +84,8 @@ export default function Home() {
   const filteredExams = exams.filter(exam => {
     const matchesSearch = exam.name.toLowerCase().includes(searchTerm.toLowerCase())
     const matchesSubject = selectedSubject === 'all' || exam.subject === selectedSubject
-    return matchesSearch && matchesSubject
+    const isPublished = !exam.publish_at || new Date(exam.publish_at).getTime() <= serverNow()
+    return matchesSearch && matchesSubject && isPublished
   })
 
   const getCourseImage = (exam: Exam) => {

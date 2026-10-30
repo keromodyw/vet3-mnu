@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, CheckCircle2, ChevronRight, ChevronLeft, Flag, X, Clock } from 'lucide-react'
+import { ArrowLeft, CheckCircle2, ChevronRight, ChevronLeft, Flag, X, Clock, LayoutGrid } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { shuffleArray } from '../utils/helpers'
 
@@ -47,6 +47,7 @@ export default function Quiz() {
   const [answered, setAnswered] = useState<Record<string, boolean>>({})
   const [startTime, setStartTime] = useState<number>(Date.now())
   const [elapsedSeconds, setElapsedSeconds] = useState<number>(0)
+  const [drawerOpen, setDrawerOpen] = useState(false)
 
   useEffect(() => {
     fetchQuestions()
@@ -119,7 +120,10 @@ export default function Quiz() {
   }
 
   const currentQuestion = questions[currentIndex]
-  const progress = questions.length > 0 ? ((currentIndex + 1) / questions.length) * 100 : 0
+  const answeredCount = questions.filter(q => answers[q.id]).length
+  const allAnswered = questions.length > 0 && answeredCount === questions.length
+  const remaining = questions.length - answeredCount
+  const progress = questions.length > 0 ? (answeredCount / questions.length) * 100 : 0
 
   const handleAnswer = (shuffledKey: 'A' | 'B' | 'C' | 'D') => {
     if (!currentQuestion) return
@@ -132,7 +136,7 @@ export default function Quiz() {
     
     if (examMode === 'instant') {
       setAnswered(prev => ({ ...prev, [currentQuestion.id]: true }))
-      const isCorrect = shuffledKey === currentQuestion.correctAnswerInShuffled
+      const isCorrect = shuffledKey === currentQuestion.correct_answer
       setFeedback({
         correct: isCorrect,
         message: isCorrect ? correctMessages[Math.floor(Math.random() * correctMessages.length)] : wrongMessages[Math.floor(Math.random() * wrongMessages.length)]
@@ -169,17 +173,21 @@ export default function Quiz() {
 
 
 
+  const goTo = (i: number) => {
+    setCurrentIndex(i)
+    setDrawerOpen(false)
+  }
+
   const finishQuiz = () => {
+    if (!allAnswered) return
+    const flaggedCount = flaggedQuestions.size
+    if (flaggedCount > 0 && !confirm(`عندك ${flaggedCount} سؤال عليه علامة. تحب تنهي الامتحان؟`)) return
     const timeTaken = Math.floor((Date.now() - startTime) / 1000)
     let correct = 0
     const answerDetails = questions.map(q => {
-      const userAnswerShuffled = answers[q.id] || null
-      const isCorrect = userAnswerShuffled === q.correctAnswerInShuffled
+      const userAnswerOriginal = answers[q.id] || null
+      const isCorrect = userAnswerOriginal === q.correct_answer
       if (isCorrect) correct++
-      // Find original key for results display
-      const userAnswerOriginal = userAnswerShuffled 
-        ? q.shuffledOptions.find(so => so.key === userAnswerShuffled)?.originalKey || null
-        : null
       return { 
         questionId: q.id, 
         userAnswer: userAnswerOriginal, 
@@ -282,6 +290,9 @@ export default function Quiz() {
                 <Clock className="w-4 h-4" />
                 <span>{Math.floor(elapsedSeconds / 60)}:{(elapsedSeconds % 60).toString().padStart(2, '0')}</span>
               </div>
+              <button onClick={() => setDrawerOpen(true)} className="p-2 rounded-lg text-slate-600 hover:bg-slate-100" aria-label="قائمة الأسئلة">
+                <LayoutGrid className="w-4 h-4" />
+              </button>
               <button onClick={toggleFlag} className={`p-2 rounded-lg ${flaggedQuestions.has(currentQuestion.id) ? 'bg-orange-100 text-orange-600' : 'text-slate-600 hover:bg-slate-100'}`}>
                 <Flag className="w-4 h-4" />
               </button>
@@ -289,6 +300,10 @@ export default function Quiz() {
                 {currentIndex + 1} / {questions.length}
               </div>
             </div>
+          </div>
+          <div className="flex items-center justify-between text-xs text-slate-500 mb-1">
+            <span>تم حل {answeredCount} من {questions.length}</span>
+            <span>{Math.round(progress)}%</span>
           </div>
           <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
             <div 
@@ -305,7 +320,7 @@ export default function Quiz() {
             <div className="inline-flex items-center px-3 py-1 rounded-full bg-emerald-50 text-emerald-700 text-sm font-medium mb-4">
               السؤال {currentIndex + 1}
             </div>
-            <h2 className="text-xl sm:text-2xl font-bold text-slate-900 leading-relaxed">
+            <h2 dir="auto" className="text-xl sm:text-2xl font-bold text-slate-900 leading-relaxed text-start">
               {currentQuestion.question_text}
             </h2>
             {currentQuestion.image_url && (
@@ -344,7 +359,7 @@ export default function Quiz() {
                   }`}>
                     {option.key}
                   </div>
-                  <span className={`flex-1 text-base sm:text-lg ${
+                  <span dir="auto" className={`flex-1 text-start text-base sm:text-lg ${
                     showResult && isCorrectOption ? 'text-emerald-900 font-medium' :
                     showResult && isSelected && !isCorrectOption ? 'text-red-900' :
                     isSelected ? 'text-emerald-900 font-medium' : 'text-slate-900'
@@ -361,7 +376,7 @@ export default function Quiz() {
           {examMode === 'instant' && answered[currentQuestion.id] && currentQuestion.explanation && (
             <div className="mt-4 p-4 rounded-xl bg-blue-50 border border-blue-200">
               <p className="text-sm font-semibold text-blue-900 mb-1">شرح الإجابة:</p>
-              <p className="text-sm text-blue-800">{currentQuestion.explanation}</p>
+              <p dir="auto" className="text-sm text-blue-800 text-start">{currentQuestion.explanation}</p>
             </div>
           )}
         </div>
@@ -375,28 +390,86 @@ export default function Quiz() {
             <ChevronRight className="w-4 h-4" />
             السابق
           </button>
-          
-          {currentIndex === questions.length - 1 ? (
-            <button
-              onClick={finishQuiz}
-              disabled={examMode === 'exam' ? Object.keys(answers).length === 0 : Object.keys(answers).length === 0}
-              className="flex items-center gap-2 px-6 py-3 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 text-white font-medium disabled:opacity-50 disabled:cursor-not-allowed hover:shadow-lg"
-            >
-              إنهاء الامتحان
-              <CheckCircle2 className="w-4 h-4" />
-            </button>
-          ) : (
-            <button
-              onClick={goNext}
-              disabled={examMode === 'instant' ? !answered[currentQuestion.id] && !answers[currentQuestion.id] : !answers[currentQuestion.id]}
-              className="flex items-center gap-2 px-6 py-3 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 text-white font-medium disabled:opacity-50 disabled:cursor-not-allowed hover:shadow-lg"
-            >
-              التالي
-              <ChevronLeft className="w-4 h-4" />
-            </button>
+
+          <button
+            onClick={goNext}
+            disabled={currentIndex === questions.length - 1}
+            className="flex items-center gap-2 px-6 py-3 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 text-white font-medium disabled:opacity-50 disabled:cursor-not-allowed hover:shadow-lg"
+          >
+            التالي
+            <ChevronLeft className="w-4 h-4" />
+          </button>
+        </div>
+
+        <div className="mt-4">
+          <button
+            onClick={finishQuiz}
+            disabled={!allAnswered}
+            className="w-full flex items-center justify-center gap-2 px-6 py-3 rounded-xl bg-slate-900 text-white font-medium disabled:opacity-40 disabled:cursor-not-allowed hover:shadow-lg"
+          >
+            إنهاء الامتحان
+            <CheckCircle2 className="w-4 h-4" />
+          </button>
+          {!allAnswered && (
+            <p className="text-center text-xs text-slate-500 mt-2">باقي {remaining} سؤال لازم تجاوب عليهم قبل الإنهاء</p>
           )}
         </div>
       </main>
+
+      {/* Questions drawer */}
+      {drawerOpen && <div className="fixed inset-0 bg-black/40 z-40" onClick={() => setDrawerOpen(false)} />}
+      <aside
+        className={`fixed inset-y-0 right-0 z-50 w-80 max-w-[85vw] bg-white shadow-2xl flex flex-col transition-transform duration-200 ${drawerOpen ? 'translate-x-0' : 'translate-x-full'}`}
+      >
+        <div className="flex items-center justify-between p-4 border-b border-slate-200">
+          <h3 className="font-bold text-slate-900">الأسئلة</h3>
+          <button onClick={() => setDrawerOpen(false)} className="p-2 rounded-lg hover:bg-slate-100">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        <div className="p-4 border-b border-slate-100 text-xs text-slate-600 space-y-1">
+          <div className="flex items-center gap-2"><span className="w-4 h-4 rounded bg-emerald-600 inline-block" /> تم الحل</div>
+          <div className="flex items-center gap-2"><span className="w-4 h-4 rounded bg-orange-500 inline-block" /> عليه علامة</div>
+          <div className="flex items-center gap-2"><span className="w-4 h-4 rounded bg-slate-100 border border-slate-300 inline-block" /> لم يُحل</div>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-4">
+          <div className="grid grid-cols-5 gap-2">
+            {questions.map((q, i) => {
+              const isAnswered = !!answers[q.id]
+              const isFlagged = flaggedQuestions.has(q.id)
+              const isCurrent = i === currentIndex
+              return (
+                <button
+                  key={q.id}
+                  onClick={() => goTo(i)}
+                  className={`relative h-11 rounded-lg text-sm font-bold transition-colors ${
+                    isFlagged ? 'bg-orange-500 text-white'
+                    : isAnswered ? 'bg-emerald-600 text-white'
+                    : 'bg-slate-100 text-slate-700 border border-slate-300'
+                  } ${isCurrent ? 'ring-2 ring-offset-2 ring-slate-900' : ''}`}
+                >
+                  {i + 1}
+                  {isFlagged && isAnswered && (
+                    <span className="absolute -top-1 -left-1 w-3 h-3 rounded-full bg-emerald-600 border-2 border-white" />
+                  )}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+
+        <div className="p-4 border-t border-slate-200">
+          <button
+            onClick={() => { setDrawerOpen(false); finishQuiz() }}
+            disabled={!allAnswered}
+            className="w-full py-3 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 text-white font-medium disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            {allAnswered ? 'إنهاء الامتحان' : `باقي ${remaining} سؤال`}
+          </button>
+        </div>
+      </aside>
     </div>
   )
 }
