@@ -26,7 +26,7 @@ class ErrorBoundary extends React.Component<
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <ErrorBoundary>
-    <BrowserRouter>
+    <BrowserRouter basename="/yalla-nezaker">
       <App />
     </BrowserRouter>
   </ErrorBoundary>,
