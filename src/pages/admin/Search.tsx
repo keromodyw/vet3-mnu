@@ -1,6 +1,6 @@
 import { useDeferredValue, useEffect, useMemo, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { ExternalLink, Search as SearchIcon, Sparkles } from 'lucide-react'
+import { ExternalLink, Search as SearchIcon } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { fetchAll, useLive } from '../../lib/live'
 import { fuzzySearch, queryTokens } from '../../lib/search'
@@ -76,7 +76,7 @@ export default function AdminSearch() {
   }
 
   return (
-    <AdminLayout title="دوّر في الأسئلة" subtitle="بحث في كل الامتحانات وتعديل مباشر" live={connected}>
+    <AdminLayout title="دوّر في الأسئلة" live={connected}>
       <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-4 sm:p-5 mb-6">
         <div className="relative">
           <SearchIcon className="absolute right-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
@@ -97,10 +97,6 @@ export default function AdminSearch() {
             <option value="">كل الامتحانات</option>
             {(data?.exams || []).map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
           </select>
-          <span className="flex items-center gap-1.5 text-xs text-slate-500">
-            <Sparkles className="w-3.5 h-3.5 text-amber-500" />
-            البحث بيتجاهل التشكيل والهمزات (أ/ا) و(ة/ه) و(ى/ي)، وبيلقط غلطات الكتابة الصغيرة
-          </span>
         </div>
       </div>
 

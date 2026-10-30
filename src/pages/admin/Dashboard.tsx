@@ -67,7 +67,7 @@ export default function AdminDashboard() {
   const navigate = useNavigate()
   const [setupError, setSetupError] = useState(false)
 
-  const { data: stats, loading, connected, updatedAt } = useLive<Stats | null>(
+  const { data: stats, loading, connected } = useLive<Stats | null>(
     async () => {
       const { data, error } = await supabase.rpc('admin_stats')
       if (error) {
@@ -87,12 +87,12 @@ export default function AdminDashboard() {
   const cards = [
     { label: 'الزوار', value: stats?.unique_visitors ?? 0, sub: `النهارده: ${num(stats?.visitors_today)} · إجمالي الزيارات: ${num(stats?.visits_total)}`, icon: Users, tint: 'from-emerald-500 to-teal-600' },
     { label: 'عدد الحلول', value: stats?.attempts_total ?? 0, sub: `النهارده: ${num(stats?.attempts_today)}`, icon: FileText, tint: 'from-sky-500 to-blue-600' },
-    { label: 'متوسط الدرجات', value: stats?.avg_score ?? 0, suffix: '%', sub: 'على كل المحاولات', icon: Award, tint: 'from-amber-500 to-orange-600' },
+    { label: 'متوسط الدرجات', value: stats?.avg_score ?? 0, suffix: '%', sub: '', icon: Award, tint: 'from-amber-500 to-orange-600' },
     { label: 'الأسئلة', value: stats?.questions ?? 0, sub: `${num(stats?.exams)} امتحان · ${num(stats?.courses)} مادة`, icon: Database, tint: 'from-violet-500 to-purple-600' },
   ]
 
   return (
-    <AdminLayout title={`أهلاً${userName ? ' يا ' + userName : ''} 👋`} subtitle="ده ملخص اللي بيحصل على الموقع دلوقتي" live={connected}>
+    <AdminLayout title={`أهلاً${userName ? ' يا ' + userName : ''} 👋`} live={connected}>
       {setupError && (
         <div className="mb-6 p-4 rounded-2xl bg-amber-50 border border-amber-200 text-amber-900 text-sm leading-relaxed">
           <b>العدّادات محتاجة تجهيز مرة واحدة:</b> افتح Supabase ← SQL Editor وشغّل ملف <code className="px-1 bg-amber-100 rounded">admin_upgrade.sql</code>، وبعدها الأرقام هتشتغل لحظيًا.
@@ -121,7 +121,6 @@ export default function AdminDashboard() {
         <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
           <div>
             <h3 className="font-bold text-slate-900">آخر 14 يوم</h3>
-            <p className="text-xs text-slate-500">بتوقيت القاهرة{updatedAt ? ` · آخر تحديث ${updatedAt.toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}` : ''}</p>
           </div>
           <div className="flex items-center gap-4 text-xs text-slate-600">
             <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-emerald-500" /> زوار</span>

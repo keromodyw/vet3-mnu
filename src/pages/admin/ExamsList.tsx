@@ -27,7 +27,7 @@ export default function AdminExamsList() {
   return (
     <AdminLayout
       title="المواد والامتحانات"
-      subtitle="اختار مادة علشان تدخل على امتحاناتها"
+     
       live={connected}
       actions={
         <button onClick={() => navigate('/admin/courses')} className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 text-white font-medium shadow-lg shadow-emerald-600/20">

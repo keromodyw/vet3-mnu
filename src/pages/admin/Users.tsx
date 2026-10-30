@@ -55,7 +55,7 @@ export default function AdminUsers() {
   return (
     <AdminLayout
       title="المستخدمين"
-      subtitle="مين يقدر يدخل لوحة التحكم"
+     
       live={connected}
       actions={
         <button onClick={() => setOpen(true)} className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 text-white font-medium shadow-lg shadow-emerald-600/20">

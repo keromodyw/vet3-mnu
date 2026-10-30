@@ -97,7 +97,7 @@ export default function AdminCourses() {
   return (
     <AdminLayout
       title="تعديل المواد"
-      subtitle="ضيف وعدّل وامسح المواد"
+     
       live={connected}
       back={{ label: 'رجوع للمواد والامتحانات', to: '/admin/exams' }}
       actions={

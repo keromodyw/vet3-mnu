@@ -90,6 +90,7 @@ export default function AdminImport() {
   const [fileName, setFileName] = useState('')
   const [parsed, setParsed] = useState<{ ok: ParsedRow[]; errors: RowError[] } | null>(null)
   const [uploading, setUploading] = useState(false)
+  const [failures, setFailures] = useState<RowError[]>([])
   const [dragging, setDragging] = useState(false)
 
   useEffect(() => {
@@ -108,6 +109,7 @@ export default function AdminImport() {
       const ws = wb.Sheets[wb.SheetNames[0]]
       const rows = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, defval: '' })
       setFileName(file.name)
+      setFailures([])
       setParsed(parseSheet(rows))
     } catch {
       toast('مقدرتش أقرا الملف ده، اتأكد إنه Excel سليم', 'error')
@@ -120,10 +122,17 @@ export default function AdminImport() {
     if (f) readFile(f)
   }
 
+  const describeError = (e: { message?: string; details?: string | null; hint?: string | null }) => {
+    const raw = [e.message, e.details, e.hint].filter(Boolean).join(' — ')
+    const needsSql = /null value in column|not-null|question_type|violates check/i.test(raw)
+    return needsSql ? `${raw}  ➜ شغّل admin_upgrade.sql المحدّث في Supabase` : raw
+  }
+
   const doImport = async () => {
     if (!parsed || parsed.ok.length === 0) return
     if (!examId) return toast('اختار الامتحان الأول', 'error')
     setUploading(true)
+    setFailures([])
     try {
       const { count } = await supabase.from('questions').select('id', { count: 'exact', head: true }).eq('exam_id', examId)
       const start = count || 0
@@ -140,15 +149,34 @@ export default function AdminImport() {
         question_type: r.question_type,
         order_index: start + i,
       }))
-      for (let i = 0; i < payload.length; i += 200) {
-        const { error } = await supabase.from('questions').insert(payload.slice(i, i + 200))
-        if (error) throw error
+
+      let done = 0
+      const failed: RowError[] = []
+      for (let i = 0; i < payload.length; i += 100) {
+        const chunk = payload.slice(i, i + 100)
+        const { error } = await supabase.from('questions').insert(chunk)
+        if (!error) { done += chunk.length; continue }
+        // the batch was refused: retry one by one to find the exact rows that fail
+        for (let j = 0; j < chunk.length; j++) {
+          const { error: e2 } = await supabase.from('questions').insert(chunk[j])
+          if (e2) failed.push({ row: parsed.ok[i + j].row, reason: describeError(e2) })
+          else done++
+        }
       }
-      toast(`اترفع ${payload.length} سؤال ✅`)
-      navigate(`/admin/exams/${examId}/questions`)
+
+      if (failed.length === 0) {
+        toast(`اترفع ${done} سؤال ✅`)
+        navigate(`/admin/exams/${examId}/questions`)
+        return
+      }
+      // keep only the rows that failed so a retry can't duplicate the ones that went through
+      const failedRows = new Set(failed.map((f) => f.row))
+      setParsed({ ok: parsed.ok.filter((r) => failedRows.has(r.row)), errors: parsed.errors })
+      setFailures(failed)
+      toast(done > 0 ? `اترفع ${done} سؤال، و${failed.length} فشلوا` : 'مفيش ولا سؤال اترفع', 'error')
     } catch (err: any) {
-      const msg: string = err?.message || 'حصلت مشكلة'
-      toast(msg.includes('question_type') ? 'شغّل ملف admin_upgrade.sql في Supabase الأول' : msg, 'error')
+      setFailures([{ row: 0, reason: describeError(err || {}) || 'حصلت مشكلة غير معروفة' }])
+      toast('الرفع فشل، شوف السبب تحت', 'error')
     } finally {
       setUploading(false)
     }
@@ -159,7 +187,7 @@ export default function AdminImport() {
   const groups = Array.from(new Set(exams.map((e) => e.course)))
 
   return (
-    <AdminLayout title="رفع أسئلة من Excel" subtitle="ارفع ملف كامل مرة واحدة، وراجعه قبل ما يتسجل" back={{ label: 'رجوع', to: examId ? `/admin/exams/${examId}/questions` : '/admin/exams' }}>
+    <AdminLayout title="رفع أسئلة من Excel" back={{ label: 'رجوع', to: examId ? `/admin/exams/${examId}/questions` : '/admin/exams' }}>
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_340px] gap-6 items-start">
         <div className="space-y-6">
           <section className="bg-white rounded-3xl border border-slate-200 shadow-sm p-5 sm:p-6">
@@ -222,6 +250,16 @@ export default function AdminImport() {
                 </div>
               )}
 
+              {failures.length > 0 && (
+                <div className="mb-4 rounded-2xl border border-red-200 bg-red-50 p-4 max-h-56 overflow-y-auto">
+                  <p className="text-sm font-semibold text-red-700 mb-2 flex items-center gap-2"><XCircle className="w-4 h-4" /> السيرفر رفض الأسئلة دي:</p>
+                  <ul className="text-sm text-red-700 space-y-1 break-words">
+                    {failures.slice(0, 10).map((f, i) => <li key={i}>{f.row ? `صف ${f.row}: ` : ''}{f.reason}</li>)}
+                  </ul>
+                  {failures.length > 10 && <p className="text-xs text-red-500 mt-2">+ {failures.length - 10} صف كمان بنفس المشكلة غالبًا</p>}
+                </div>
+              )}
+
               <button
                 onClick={doImport}
                 disabled={uploading || parsed.ok.length === 0 || !examId}
@@ -235,15 +273,11 @@ export default function AdminImport() {
 
         <aside className="bg-gradient-to-br from-slate-900 to-emerald-950 text-white rounded-3xl p-6 lg:sticky lg:top-24">
           <FileSpreadsheet className="w-9 h-9 text-emerald-300 mb-3" />
-          <h3 className="font-bold text-lg mb-2">لسه معندكش الملف؟</h3>
-          <p className="text-sm text-slate-300 leading-relaxed mb-4">نزّل template فاضية فيها الأعمدة جاهزة وصفحة تعليمات.</p>
+          <h3 className="font-bold text-lg mb-4">لسه معندكش الملف؟</h3>
           <button onClick={downloadTemplate} className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-white text-slate-900 font-bold hover:bg-emerald-50">
             <Download className="w-4 h-4" />
             تحميل template اكسيل فاضية
           </button>
-          <div className="mt-5 pt-5 border-t border-white/10 text-sm text-slate-300 space-y-2 leading-relaxed">
-            <p><b className="text-emerald-300">سؤال مقالي؟</b> اكتب الإجابة النموذجية في عمود <b>أ</b> بس، وسيب ب وج ود فاضيين، واكتب <b>A</b> في الإجابة الصحيحة.</p>
-          </div>
         </aside>
       </div>
     </AdminLayout>

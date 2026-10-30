@@ -109,7 +109,7 @@ export default function AdminExams() {
   return (
     <AdminLayout
       title={data?.courseName ? `امتحانات ${data.courseName}` : 'الامتحانات'}
-      subtitle="كل امتحان وأرقامه لحظة بلحظة"
+     
       live={connected}
       back={{ label: 'رجوع للمواد', to: '/admin/exams' }}
       actions={
@@ -145,7 +145,7 @@ export default function AdminExams() {
                   ) : (
                     <span className="px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 text-xs font-medium flex items-center gap-1">
                       <Eye className="w-3 h-3" />
-                      ظاهر للطلبة
+                      ظاهر للكل
                     </span>
                   )}
                 </div>
@@ -198,17 +198,14 @@ export default function AdminExams() {
               <textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} rows={3} className="w-full px-4 py-2.5 rounded-xl border-2 border-slate-200 focus:border-emerald-500 focus:outline-none" />
             </div>
             <div>
-              <label className="block text-sm font-semibold text-slate-700 mb-2">يظهر للطلبة امتى؟</label>
+              <label className="block text-sm font-semibold text-slate-700 mb-2">يظهر للكل امتى؟</label>
               <div className="grid grid-cols-2 gap-2 p-1 rounded-xl bg-slate-100 mb-3">
                 {([['now', 'دلوقتي'], ['schedule', 'في ميعاد معين']] as const).map(([v, label]) => (
                   <button key={v} type="button" onClick={() => setForm({ ...form, mode: v })} className={`py-2 rounded-lg text-sm font-semibold ${form.mode === v ? 'bg-white text-emerald-700 shadow' : 'text-slate-500'}`}>{label}</button>
                 ))}
               </div>
               {form.mode === 'schedule' && (
-                <>
-                  <input type="datetime-local" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} className="w-full px-4 py-2.5 rounded-xl border-2 border-slate-200 focus:border-emerald-500 focus:outline-none" />
-                  <p className="text-xs text-slate-500 mt-2">الميعاد بتوقيت القاهرة، والظهور بيتحدد بساعة السيرفر مش جهاز الطالب.</p>
-                </>
+                <input type="datetime-local" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} className="w-full px-4 py-2.5 rounded-xl border-2 border-slate-200 focus:border-emerald-500 focus:outline-none" />
               )}
             </div>
           </form>

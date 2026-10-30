@@ -86,7 +86,7 @@ export default function AdminQuestions() {
   return (
     <AdminLayout
       title={data?.examName || 'الأسئلة'}
-      subtitle={data?.courseName ? `${data.courseName} › تعديل الأسئلة` : 'تعديل الأسئلة'}
+      subtitle={data?.courseName || undefined}
       live={connected}
       back={{ label: 'رجوع للامتحانات', to: data?.courseId ? `/admin/courses/${data.courseId}/exams` : '/admin/exams' }}
       actions={
