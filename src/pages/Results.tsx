@@ -1,5 +1,7 @@
 import { useLocation, useNavigate } from 'react-router-dom'
 import { CheckCircle2, XCircle, Home, RotateCcw, Clock } from 'lucide-react'
+import { isEssay } from '../lib/questionType'
+import { getFeedbackText } from '../lib/essayGrader'
 
 export default function Results() {
   const location = useLocation()
@@ -91,6 +93,25 @@ export default function Results() {
                       <p dir="auto" className="text-slate-900 mb-4 text-start whitespace-pre-line">{q.question_text}</p>
                       {q.image_url && <img src={q.image_url} alt="" loading="lazy" className="mb-4 max-w-full max-h-72 rounded-xl border border-slate-200" />}
                       
+                      {isEssay(q) ? (
+                        <div className="space-y-3">
+                          <div className={`p-3 rounded-xl border-2 ${answer?.isCorrect ? 'border-emerald-500 bg-emerald-50' : 'border-red-400 bg-red-50'}`}>
+                            <div className="text-xs font-bold text-slate-500 mb-1">إجابتك</div>
+                            <p dir="auto" className="text-sm text-start whitespace-pre-line">{answer?.userText || '—'}</p>
+                          </div>
+                          <div className="p-3 rounded-xl border-2 border-emerald-500 bg-emerald-50">
+                            <div className="text-xs font-bold text-emerald-700 mb-1">الإجابة النموذجية</div>
+                            <p dir="auto" className="text-sm text-start whitespace-pre-line">{q.option_a}</p>
+                          </div>
+                          <div className="flex items-center gap-3">
+                            <div className="flex-1 h-2 rounded-full bg-slate-100 overflow-hidden">
+                              <div className={`h-full rounded-full ${answer?.isCorrect ? 'bg-emerald-500' : 'bg-red-400'}`} style={{ width: `${Math.round((answer?.essayScore || 0) * 100)}%` }} />
+                            </div>
+                            <span className="text-sm font-semibold text-slate-700">{Math.round((answer?.essayScore || 0) * 100)}% تشابه</span>
+                          </div>
+                          <p className="text-xs text-slate-500">{getFeedbackText(answer?.essayScore || 0)}</p>
+                        </div>
+                      ) : (
                       <div className="space-y-2">
                         {q.option_a && (
                           <div className={`p-3 rounded-xl border-2 ${
@@ -145,6 +166,7 @@ export default function Results() {
                           </div>
                         )}
                       </div>
+                      )}
                       
                       {q.explanation && (
                         <div className="mt-4 p-4 rounded-xl bg-blue-50 border border-blue-200">

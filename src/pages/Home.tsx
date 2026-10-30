@@ -3,6 +3,9 @@ import { useNavigate } from 'react-router-dom'
 import { BookOpen, Search, ArrowLeft, Download, FileText } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { serverNow, syncServerTime } from '../lib/time'
+import { useRealtime } from '../lib/live'
+import { printExam } from '../lib/pdf'
+import type { QuestionRow } from '../lib/questionType'
 
 interface Exam {
   id: string
@@ -43,6 +46,12 @@ export default function Home() {
     return () => clearInterval(id)
   }, [])
 
+  // live: refresh when exams / courses / questions change
+  useRealtime(['exams', 'courses', 'questions'], () => {
+    fetchExams()
+    fetchCourses()
+  }, 30000)
+
   const fetchExams = async () => {
     try {
       const { data, error } = await supabase
@@ -53,14 +62,19 @@ export default function Home() {
       if (error) throw error
       setExams(data || [])
       
-      // Fetch question counts
+      // Fetch question counts (one RPC call; falls back to per-exam counts)
       const counts: Record<string, number> = {}
-      for (const exam of data || []) {
-        const { count } = await supabase
-          .from('questions')
-          .select('*', { count: 'exact', head: true })
-          .eq('exam_id', exam.id)
-        counts[exam.id] = count || 0
+      const rpc = await supabase.rpc('admin_exam_stats')
+      if (!rpc.error && Array.isArray(rpc.data)) {
+        ;(rpc.data as { exam_id: string; questions: number }[]).forEach((r) => { counts[r.exam_id] = r.questions })
+      } else {
+        for (const exam of data || []) {
+          const { count } = await supabase
+            .from('questions')
+            .select('*', { count: 'exact', head: true })
+            .eq('exam_id', exam.id)
+          counts[exam.id] = count || 0
+        }
       }
       setQuestionCounts(counts)
     } catch (error) {
@@ -102,70 +116,9 @@ export default function Home() {
       .select('*')
       .eq('exam_id', selectedExamForPdf.id)
       .order('order_index', { ascending: true })
-    
-    const printWindow = window.open('', '_blank')
-    if (!printWindow) return
-    
-    const content = `
-      <!DOCTYPE html>
-      <html dir="rtl" lang="ar">
-      <head>
-        <meta charset="UTF-8">
-        <title>${selectedExamForPdf.name}</title>
-        <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&display=swap" rel="stylesheet">
-        <style>
-          * { font-family: 'Cairo', sans-serif; margin: 0; padding: 0; box-sizing: border-box; }
-          body { padding: 40px; background: #fff; }
-          .header { text-align: center; margin-bottom: 40px; padding-bottom: 20px; border-bottom: 3px solid #059669; }
-          .header h1 { color: #059669; font-size: 28px; font-weight: 800; margin-bottom: 10px; }
-          .header p { color: #64748b; font-size: 14px; }
-          .question { margin-bottom: 35px; page-break-inside: avoid; background: #f9fafb; padding: 20px; border-radius: 12px; border-right: 4px solid #059669; }
-          .q-header { display: flex; align-items: center; gap: 10px; margin-bottom: 15px; }
-          .q-number { background: linear-gradient(135deg, #059669, #10b981); color: white; width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; flex-shrink: 0; }
-          .q-text { font-weight: 700; font-size: 16px; color: #1e293b; line-height: 1.8; flex: 1; }
-          .options { margin-right: 42px; }
-          .option { padding: 12px 16px; margin: 8px 0; background: white; border: 2px solid #e2e8f0; border-radius: 10px; display: flex; align-items: center; gap: 10px; }
-          .option-letter { background: #f1f5f9; color: #475569; width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; flex-shrink: 0; }
-          .correct-option { background: #dcfce7; border-color: #22c55e; }
-          .correct-option .option-letter { background: #22c55e; color: white; }
-          .answer-box { margin-top: 15px; margin-right: 42px; padding: 15px; background: linear-gradient(135deg, #fef3c7, #fde68a); border-radius: 10px; border: 2px solid #f59e0b; }
-          .answer-box strong { color: #92400e; }
-          .explanation { margin-top: 10px; padding-top: 10px; border-top: 1px solid #f59e0b; color: #78350f; line-height: 1.7; }
-          @media print { body { padding: 20px; } }
-        </style>
-      </head>
-      <body>
-        <div class="header">
-          <h1>${selectedExamForPdf.name}</h1>
-          <p>عدد الأسئلة: ${(questions || []).length} | ${withAnswers ? 'مع الإجابات والشرح' : 'بدون إجابات'}</p>
-          <p style="margin-top: 5px;">يلا نذاكر؟ - Made by Kirolos Mody</p>
-        </div>
-        ${(questions || []).map((q: any, idx: number) => `
-          <div class="question">
-            <div class="q-header">
-              <div class="q-number">${idx + 1}</div>
-              <div class="q-text">${q.question_text}</div>
-            </div>
-            <div class="options">
-              ${q.option_a ? `<div class="option ${withAnswers && q.correct_answer === 'A' ? 'correct-option' : ''}"><div class="option-letter">أ</div><span>${q.option_a}</span></div>` : ''}
-              ${q.option_b ? `<div class="option ${withAnswers && q.correct_answer === 'B' ? 'correct-option' : ''}"><div class="option-letter">ب</div><span>${q.option_b}</span></div>` : ''}
-              ${q.option_c ? `<div class="option ${withAnswers && q.correct_answer === 'C' ? 'correct-option' : ''}"><div class="option-letter">ج</div><span>${q.option_c}</span></div>` : ''}
-              ${q.option_d ? `<div class="option ${withAnswers && q.correct_answer === 'D' ? 'correct-option' : ''}"><div class="option-letter">د</div><span>${q.option_d}</span></div>` : ''}
-            </div>
-            ${withAnswers ? `
-              <div class="answer-box">
-                <strong>✓ الإجابة الصحيحة: ${q.correct_answer === 'A' ? 'أ' : q.correct_answer === 'B' ? 'ب' : q.correct_answer === 'C' ? 'ج' : q.correct_answer === 'D' ? 'د' : q.correct_answer}</strong>
-                ${q.explanation ? `<div class="explanation"><strong>الشرح:</strong><br>${q.explanation}</div>` : ''}
-              </div>
-            ` : ''}
-          </div>
-        `).join('')}
-      </body>
-      </html>
-    `
-    printWindow.document.write(content)
-    printWindow.document.close()
-    setTimeout(() => printWindow.print(), 500)
+
+    const opened = printExam(selectedExamForPdf.name, (questions || []) as QuestionRow[], withAnswers)
+    if (!opened) alert('المتصفح قفل نافذة الطباعة، اسمح بالـ pop-ups للموقع وجرّب تاني')
     setShowPdfModal(false)
   }
 
@@ -175,7 +128,7 @@ export default function Home() {
       <header className="relative overflow-hidden">
         <div className="absolute inset-0 bg-gradient-to-br from-emerald-600 via-emerald-700 to-teal-800" />
         <img 
-          src="/hero-cover.jpg" 
+          src={`${import.meta.env.BASE_URL}hero-cover.jpg`} 
           alt="Hero Cover" 
           className="absolute inset-0 w-full h-full object-cover opacity-20"
         />

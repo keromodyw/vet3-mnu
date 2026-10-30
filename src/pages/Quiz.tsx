@@ -3,6 +3,9 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { CheckCircle2, ChevronLeft, ChevronRight, Clock, Eraser, Flag, LayoutGrid, X, ZoomIn } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { shuffleArray } from '../utils/helpers'
+import { isEssay } from '../lib/questionType'
+import { evaluateEssayAnswer, getFeedbackText } from '../lib/essayGrader'
+import { recordAttempt } from '../lib/analytics'
 
 type Key = 'A' | 'B' | 'C' | 'D'
 
@@ -17,6 +20,7 @@ interface Question {
   correct_answer: Key
   explanation: string | null
   image_url: string | null
+  question_type?: string | null
 }
 
 interface Option {
@@ -50,8 +54,9 @@ export default function Quiz() {
   const [mode, setMode] = useState<'instant' | 'exam'>('instant')
 
   const [currentIndex, setCurrentIndex] = useState(0)
-  const [answers, setAnswers] = useState<Record<string, Key>>({})
+  const [answers, setAnswers] = useState<Record<string, string>>({})
   const [flagged, setFlagged] = useState<Set<string>>(new Set())
+  const [checked, setChecked] = useState<Set<string>>(new Set()) // essays already evaluated (instant mode)
 
   const [elapsed, setElapsed] = useState(0)
   const startRef = useRef(Date.now())
@@ -98,12 +103,19 @@ export default function Quiz() {
 
   const total = questions.length
   const q = questions[currentIndex]
-  const answeredCount = questions.filter((x) => answers[x.id]).length
+  const isAnswered = (x: ExamQuestion) =>
+    isEssay(x)
+      ? mode === 'exam'
+        ? !!(answers[x.id] || '').trim()
+        : checked.has(x.id)
+      : !!answers[x.id]
+  const answeredCount = questions.filter(isAnswered).length
   const remaining = total - answeredCount
   const allAnswered = total > 0 && remaining === 0
   const progress = total > 0 ? (answeredCount / total) * 100 : 0
-  const locked = !!q && mode === 'instant' && !!answers[q.id]
-  const firstUnanswered = questions.findIndex((x) => !answers[x.id])
+  const qEssay = !!q && isEssay(q)
+  const locked = !!q && mode === 'instant' && (qEssay ? checked.has(q.id) : !!answers[q.id])
+  const firstUnanswered = questions.findIndex((x) => !isAnswered(x))
 
   const goTo = (i: number) => {
     setCurrentIndex(Math.max(0, Math.min(total - 1, i)))
@@ -114,8 +126,23 @@ export default function Quiz() {
   const goPrev = () => goTo(currentIndex - 1)
 
   const select = (key: Key) => {
-    if (!q || locked) return
+    if (!q || locked || qEssay) return
     setAnswers((prev) => ({ ...prev, [q.id]: key }))
+  }
+
+  const setEssayText = (text: string) => {
+    if (!q || locked) return
+    setAnswers((prev) => {
+      const next = { ...prev }
+      if (text.trim()) next[q.id] = text
+      else delete next[q.id]
+      return next
+    })
+  }
+
+  const evaluateCurrentEssay = () => {
+    if (!q || !(answers[q.id] || '').trim()) return
+    setChecked((prev) => new Set(prev).add(q.id))
   }
 
   const clearAnswer = () => {
@@ -142,6 +169,11 @@ export default function Quiz() {
     let correct = 0
     const details = questions.map((x) => {
       const userAnswer = answers[x.id] || null
+      if (isEssay(x)) {
+        const r = evaluateEssayAnswer(userAnswer || '', x.option_a || '')
+        if (r.isCorrect) correct++
+        return { questionId: x.id, userAnswer: null, userText: userAnswer, correctAnswer: 'A', isCorrect: r.isCorrect, essayScore: r.score }
+      }
       const isCorrect = userAnswer === x.correct_answer
       if (isCorrect) correct++
       return { questionId: x.id, userAnswer, correctAnswer: x.correct_answer, isCorrect }
@@ -156,6 +188,7 @@ export default function Quiz() {
       examName,
       timeTaken: Math.floor((Date.now() - startRef.current) / 1000),
     }
+    if (examId) recordAttempt({ examId, score: result.score, correct, total, timeTaken: result.timeTaken })
     navigate('/results', { state: { result, questions } })
   }
 
@@ -281,9 +314,11 @@ export default function Quiz() {
           const isFlagged = flagged.has(x.id)
           const isCurrent = i === currentIndex
           let color = 'bg-white text-slate-600 border-slate-300 hover:border-emerald-400'
-          if (a) {
-            if (mode === 'instant') color = a === x.correct_answer ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-red-500 text-white border-red-500'
-            else color = 'bg-emerald-600 text-white border-emerald-600'
+          if (isAnswered(x)) {
+            if (mode === 'instant') {
+              const good = isEssay(x) ? evaluateEssayAnswer(a || '', x.option_a || '').isCorrect : a === x.correct_answer
+              color = good ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-red-500 text-white border-red-500'
+            } else color = 'bg-emerald-600 text-white border-emerald-600'
           }
           return (
             <button
@@ -392,6 +427,49 @@ export default function Quiz() {
               </button>
             )}
 
+            {qEssay ? (
+              <div className="mt-6">
+                <textarea
+                  dir="auto"
+                  value={answers[q.id] || ''}
+                  onChange={(e) => setEssayText(e.target.value)}
+                  readOnly={locked}
+                  rows={6}
+                  placeholder="اكتب إجابتك هنا..."
+                  className={`w-full p-4 rounded-2xl border-2 text-base sm:text-lg leading-relaxed text-start focus:outline-none transition-colors ${locked ? 'bg-slate-50 border-slate-200 text-slate-600' : 'border-slate-200 focus:border-emerald-500'}`}
+                />
+                {mode === 'instant' && !locked && (
+                  <button
+                    onClick={evaluateCurrentEssay}
+                    disabled={!(answers[q.id] || '').trim()}
+                    className="mt-3 w-full py-3 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 text-white font-bold disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    تقييم الإجابة
+                  </button>
+                )}
+                {mode === 'exam' && <p className="mt-2 text-xs text-slate-400">هتتصحح إجابتك المقالية لما تسلّم الامتحان.</p>}
+                {locked && (() => {
+                  const r = evaluateEssayAnswer(answers[q.id] || '', q.option_a || '')
+                  const pct = Math.round(r.score * 100)
+                  return (
+                    <div className="mt-4 space-y-3">
+                      <div className={`p-4 rounded-2xl border-2 text-center ${r.isCorrect ? 'border-emerald-500 bg-emerald-50' : 'border-red-400 bg-red-50'}`}>
+                        <div className={`font-bold text-lg ${r.isCorrect ? 'text-emerald-700' : 'text-red-600'}`}>{r.isCorrect ? 'إجابة صحيحة!' : 'إجابة غير صحيحة'}</div>
+                        <div className="text-2xl font-extrabold text-slate-800 my-1">{pct}% تشابه</div>
+                        <div className="h-2 rounded-full bg-white/80 overflow-hidden my-2">
+                          <div className={`h-full rounded-full ${r.isCorrect ? 'bg-emerald-500' : 'bg-red-400'}`} style={{ width: `${pct}%` }} />
+                        </div>
+                        <div className="text-sm text-slate-600">{getFeedbackText(r.score)}</div>
+                      </div>
+                      <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-200">
+                        <p className="text-sm font-bold text-emerald-800 mb-1">الإجابة النموذجية</p>
+                        <p dir="auto" className="text-sm text-slate-800 leading-relaxed text-start whitespace-pre-line">{q.option_a}</p>
+                      </div>
+                    </div>
+                  )
+                })()}
+              </div>
+            ) : (
             <div className="mt-6 space-y-3">
               {q.options.map((opt, idx) => {
                 const isSel = answers[q.id] === opt.originalKey
@@ -423,8 +501,9 @@ export default function Quiz() {
                 )
               })}
             </div>
+            )}
 
-            {mode === 'exam' && answers[q.id] && (
+            {mode === 'exam' && !qEssay && answers[q.id] && (
               <button onClick={clearAnswer} className="mt-4 inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-900">
                 <Eraser className="w-4 h-4" />
                 مسح الإجابة
