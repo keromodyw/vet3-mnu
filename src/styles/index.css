@@ -19,3 +19,12 @@ body {
 #root {
   min-height: 100vh;
 }
+
+@keyframes q-fade {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.q-enter {
+  animation: q-fade 0.25s ease-out;
+}
