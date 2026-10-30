@@ -1,302 +1,219 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { ArrowRight, Plus, Trash2, Edit, FileText, Menu, X, Home, LogOut, UserCog, Calendar, FileSpreadsheet } from 'lucide-react'
+import { Calendar, Edit, Eye, FileSpreadsheet, FileText, ListChecks, Plus, Trash2 } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
-import { cairoLocalToISO, isoToCairoLocal } from '../../lib/time'
+import { useLive } from '../../lib/live'
+import { cairoLocalToISO, formatCairo, isoToCairoLocal, serverNow, syncServerTime } from '../../lib/time'
+import { storagePathFromUrl } from '../../lib/image'
+import AdminLayout from '../../components/admin/AdminLayout'
+import Modal from '../../components/admin/Modal'
+import { confirmDialog, toast } from '../../components/admin/feedback'
 
 interface Exam {
   id: string
   name: string
-  subject: string | null
   description: string | null
   course_id: string | null
   image_url: string | null
   publish_at: string | null
   created_at: string
 }
+interface ExamStat { exam_id: string; questions: number; attempts: number; avg_score: number | null }
+
+const emptyForm = { name: '', description: '', mode: 'now' as 'now' | 'schedule', date: '' }
 
 export default function AdminExams() {
   const { courseId } = useParams()
   const navigate = useNavigate()
-  const [exams, setExams] = useState<Exam[]>([])
-  const [courseName, setCourseName] = useState('')
-  const [loading, setLoading] = useState(true)
-  const [showModal, setShowModal] = useState(false)
-  const [formData, setFormData] = useState({ name: '', description: '', publish_now: 'now', publish_date: '' })
-  const [editingId, setEditingId] = useState<string | null>(null)
-  const [sidebarOpen, setSidebarOpen] = useState(false)
-  const [adminUser, setAdminUser] = useState<any>(null)
+  const [, setTick] = useState(0)
+  const [open, setOpen] = useState(false)
+  const [editing, setEditing] = useState<Exam | null>(null)
+  const [form, setForm] = useState(emptyForm)
+  const [saving, setSaving] = useState(false)
 
   useEffect(() => {
-    const auth = localStorage.getItem('admin_auth')
-    if (auth !== 'true') {
-      navigate('/admin/login')
-      return
-    }
-    const user = localStorage.getItem('admin_user')
-    if (user) setAdminUser(JSON.parse(user))
-    fetchData()
+    syncServerTime().then(() => setTick((t) => t + 1))
+    const id = setInterval(() => setTick((t) => t + 1), 30000)
+    return () => clearInterval(id)
   }, [])
 
-  const fetchData = async () => {
-    try {
-      const [{ data: course }, { data: examsData }] = await Promise.all([
+  const { data, loading, connected, reload } = useLive(
+    async () => {
+      const [c, e, s] = await Promise.all([
         supabase.from('courses').select('name').eq('id', courseId).single(),
-        supabase.from('exams').select('*').eq('course_id', courseId).order('created_at', { ascending: false })
+        supabase.from('exams').select('*').eq('course_id', courseId).order('created_at', { ascending: false }),
+        supabase.rpc('admin_exam_stats'),
       ])
-      if (course) setCourseName(course.name)
-      setExams(examsData || [])
-    } catch (error) {
-      console.error('Error:', error)
-    } finally {
-      setLoading(false)
-    }
+      const stats: Record<string, ExamStat> = {}
+      ;((s.data as ExamStat[]) || []).forEach((x) => { stats[x.exam_id] = x })
+      return { courseName: (c.data?.name as string) || '', exams: (e.data || []) as Exam[], stats }
+    },
+    ['exams', 'questions', 'exam_attempts']
+  )
+
+  const exams = data?.exams || []
+
+  const openNew = () => { setEditing(null); setForm(emptyForm); setOpen(true) }
+  const openEdit = (x: Exam) => {
+    setEditing(x)
+    setForm({ name: x.name, description: x.description || '', mode: x.publish_at ? 'schedule' : 'now', date: x.publish_at ? isoToCairoLocal(x.publish_at) : '' })
+    setOpen(true)
   }
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const save = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (!form.name.trim()) return toast('اكتب اسم الامتحان', 'error')
+    if (form.mode === 'schedule' && !form.date) return toast('اختار ميعاد الظهور', 'error')
+    setSaving(true)
     try {
-      let publish_at = null
-      if (formData.publish_now === 'schedule' && formData.publish_date) {
-        publish_at = cairoLocalToISO(formData.publish_date)
-      }
-
-      if (editingId) {
-        const { error } = await supabase
-          .from('exams')
-          .update({ 
-            name: formData.name, 
-            description: formData.description || null,
-            publish_at 
-          })
-          .eq('id', editingId)
+      const publish_at = form.mode === 'schedule' && form.date ? cairoLocalToISO(form.date) : null
+      const payload = { name: form.name.trim(), description: form.description.trim() || null, publish_at }
+      if (editing) {
+        const { error } = await supabase.from('exams').update(payload).eq('id', editing.id)
         if (error) throw error
       } else {
-        const { error } = await supabase
-          .from('exams')
-          .insert({ 
-            name: formData.name, 
-            description: formData.description || null,
-            course_id: courseId,
-            publish_at 
-          })
+        const { error } = await supabase.from('exams').insert({ ...payload, course_id: courseId })
         if (error) throw error
       }
-      setShowModal(false)
-      setFormData({ name: '', description: '', publish_now: 'now', publish_date: '' })
-      setEditingId(null)
-      fetchData()
-    } catch (error) {
-      alert('حدث خطأ')
+      toast(editing ? 'اتعدّل الامتحان ✅' : 'الامتحان اتضاف ✅')
+      setOpen(false)
+      reload()
+    } catch (err: any) {
+      toast(err?.message || 'حصلت مشكلة', 'error')
+    } finally {
+      setSaving(false)
     }
   }
 
-  const handleEdit = (exam: Exam) => {
-    setFormData({ 
-      name: exam.name, 
-      description: exam.description || '',
-      publish_now: exam.publish_at ? 'schedule' : 'now',
-      publish_date: exam.publish_at ? isoToCairoLocal(exam.publish_at) : ''
+  const remove = async (x: Exam) => {
+    const ok = await confirmDialog({
+      title: `تمسح امتحان "${x.name}"؟`,
+      message: 'كل الأسئلة والصور بتاعته هتتمسح معاه.',
+      confirmText: 'امسح',
+      danger: true,
     })
-    setEditingId(exam.id)
-    setShowModal(true)
-  }
-
-  const handleDelete = async (exam: Exam) => {
-    if (!confirm('هل أنت متأكد من حذف هذا الامتحان؟ سيتم حذف جميع الأسئلة والصور المرتبطة به')) return
+    if (!ok) return
     try {
-      if (exam.image_url) {
-        const path = exam.image_url.split('/images/')[1]
-        if (path) await supabase.storage.from('images').remove([path])
-      }
-      const { error } = await supabase.from('exams').delete().eq('id', exam.id)
+      const { data: imgs } = await supabase.from('questions').select('image_url').eq('exam_id', x.id).not('image_url', 'is', null)
+      const paths = [x.image_url, ...((imgs || []).map((i: any) => i.image_url as string))].map(storagePathFromUrl).filter(Boolean) as string[]
+      const { error } = await supabase.from('exams').delete().eq('id', x.id)
       if (error) throw error
-      fetchData()
-    } catch (error) {
-      alert('حدث خطأ')
+      if (paths.length) await supabase.storage.from('images').remove(paths)
+      toast('الامتحان اتمسح')
+      reload()
+    } catch (err: any) {
+      toast(err?.message || 'حصلت مشكلة', 'error')
     }
   }
-
-  const logout = () => {
-    localStorage.removeItem('admin_auth')
-    localStorage.removeItem('admin_user')
-    navigate('/admin/login')
-  }
-
-  const menuItems = [
-    { icon: Home, label: 'الرئيسية', path: '/admin' },
-    { icon: FileText, label: 'الامتحانات', path: '/admin/exams' },
-    ...(adminUser?.role === 'super_admin' ? [{ icon: UserCog, label: 'إدارة المستخدمين', path: '/admin/users' }] : [])
-  ]
 
   return (
-    <div className="min-h-screen bg-slate-50 flex">
-      <aside className={`fixed inset-y-0 right-0 z-50 w-64 bg-slate-900 transform ${sidebarOpen ? 'translate-x-0' : 'translate-x-full'} lg:translate-x-0 transition-transform duration-200 ease-in-out`}>
-        <div className="flex items-center justify-between h-16 px-4 border-b border-slate-800">
-          <div className="flex items-center gap-3">
-            <img src={`${import.meta.env.BASE_URL}logo.jpg`} alt="Logo" className="w-10 h-10 rounded-full" />
-            <span className="text-white font-bold">شاشة الأدمن</span>
-          </div>
-          <button onClick={() => setSidebarOpen(false)} className="lg:hidden text-slate-400 hover:text-white">
-            <X className="w-5 h-5" />
-          </button>
+    <AdminLayout
+      title={data?.courseName ? `امتحانات ${data.courseName}` : 'الامتحانات'}
+      subtitle="كل امتحان وأرقامه لحظة بلحظة"
+      live={connected}
+      back={{ label: 'رجوع للمواد', to: '/admin/exams' }}
+      actions={
+        <button onClick={openNew} className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 text-white font-medium shadow-lg shadow-emerald-600/20">
+          <Plus className="w-4 h-4" />
+          ضيف امتحان
+        </button>
+      }
+    >
+      {loading ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">{[0, 1, 2].map((i) => <div key={i} className="h-60 rounded-3xl bg-slate-200/60 animate-pulse" />)}</div>
+      ) : exams.length === 0 ? (
+        <div className="text-center py-16 bg-white rounded-3xl border border-slate-200">
+          <FileText className="w-12 h-12 text-slate-300 mx-auto mb-4" />
+          <p className="text-slate-600">مفيش امتحانات في المادة دي لسه</p>
         </div>
-        <nav className="p-4 space-y-2">
-          {menuItems.map((item) => (
-            <button
-              key={item.path}
-              onClick={() => { navigate(item.path); setSidebarOpen(false) }}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-colors ${
-                item.path === '/admin/exams' ? 'bg-emerald-600 text-white' : 'text-slate-300 hover:bg-slate-800 hover:text-white'
-              }`}
-            >
-              <item.icon className="w-5 h-5" />
-              <span>{item.label}</span>
-            </button>
-          ))}
-        </nav>
-        <div className="absolute bottom-4 right-4 left-4">
-          <button onClick={logout} className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-red-400 hover:bg-red-500/10 transition-colors">
-            <LogOut className="w-5 h-5" />
-            <span>خروج</span>
-          </button>
-        </div>
-      </aside>
-
-      <div className="flex-1 lg:mr-64">
-        <header className="bg-white border-b border-slate-200 sticky top-0 z-40">
-          <div className="px-4 sm:px-6 lg:px-8 py-4 flex items-center justify-between">
-            <button onClick={() => setSidebarOpen(true)} className="lg:hidden p-2 hover:bg-slate-100 rounded-lg">
-              <Menu className="w-5 h-5" />
-            </button>
-            <h1 className="text-lg font-bold text-slate-900">امتحانات {courseName}</h1>
-            <button onClick={() => navigate('/admin')} className="p-2 hover:bg-slate-100 rounded-lg">
-              <Home className="w-5 h-5" />
-            </button>
-          </div>
-        </header>
-
-        <main className="p-4 sm:p-6 lg:p-8">
-          <div className="flex items-center justify-between mb-6">
-            <button onClick={() => navigate('/admin/exams')} className="flex items-center gap-2 text-slate-600 hover:text-slate-900">
-              <ArrowRight className="w-4 h-4" />
-              <span>العودة للمواد</span>
-            </button>
-            <button onClick={() => { setShowModal(true); setFormData({ name: '', description: '', publish_now: 'now', publish_date: '' }); setEditingId(null) }} className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 text-white rounded-xl">
-              <Plus className="w-4 h-4" />
-              إضافة امتحان
-            </button>
-          </div>
-
-          {loading ? (
-            <div className="text-center py-12">جاري التحميل...</div>
-          ) : exams.length === 0 ? (
-            <div className="text-center py-12 bg-white rounded-2xl">
-              <FileText className="w-12 h-12 text-slate-300 mx-auto mb-4" />
-              <p className="text-slate-600">لا توجد امتحانات بعد</p>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {exams.map((exam) => (
-                <div key={exam.id} className="bg-white rounded-2xl p-6 shadow-sm border border-slate-200">
-                  <div className="flex items-start justify-between mb-4">
-                    <div className="w-12 h-12 rounded-xl bg-emerald-100 flex items-center justify-center">
-                      <FileText className="w-6 h-6 text-emerald-700" />
-                    </div>
-                    {exam.publish_at && (
-                      <span className="px-2 py-1 rounded-full bg-orange-50 text-orange-700 text-xs flex items-center gap-1">
-                        <Calendar className="w-3 h-3" />
-                        مجدول
-                      </span>
-                    )}
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
+          {exams.map((x) => {
+            const st = data?.stats[x.id]
+            const scheduled = !!x.publish_at && new Date(x.publish_at).getTime() > serverNow()
+            return (
+              <div key={x.id} className="bg-white rounded-3xl border border-slate-200 shadow-sm hover:shadow-lg transition-shadow p-5 flex flex-col">
+                <div className="flex items-start justify-between gap-2 mb-3">
+                  <div className="w-11 h-11 rounded-2xl bg-emerald-100 flex items-center justify-center flex-shrink-0">
+                    <FileText className="w-5 h-5 text-emerald-700" />
                   </div>
-                  <h3 className="text-lg font-bold text-slate-900 mb-2">{exam.name}</h3>
-                  {exam.description && <p className="text-sm text-slate-600 mb-3">{exam.description}</p>}
-                  <div className="flex items-center gap-2">
-                    <button onClick={() => navigate(`/admin/exams/${exam.id}/questions`)} className="flex-1 py-2 px-3 rounded-lg bg-emerald-50 text-emerald-700 text-sm font-medium">
-                      إدارة الأسئلة
-                    </button>
-                    <button onClick={() => navigate(`/admin/import?examId=${exam.id}`)} className="px-3 py-2 rounded-lg bg-teal-50 text-teal-700 text-xs font-medium flex items-center gap-1">
-                      <FileSpreadsheet className="w-3 h-3" />
-                      Excel
-                    </button>
-                    <button onClick={() => handleEdit(exam)} className="p-2 text-slate-600 hover:bg-slate-100 rounded-lg">
-                      <Edit className="w-4 h-4" />
-                    </button>
-                    <button onClick={() => handleDelete(exam)} className="p-2 text-red-600 hover:bg-red-50 rounded-lg">
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </main>
-      </div>
-
-      {showModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50 overflow-y-auto">
-          <div className="bg-white rounded-2xl p-6 w-full max-w-md my-8">
-            <h2 className="text-xl font-bold text-slate-900 mb-4">{editingId ? 'تعديل امتحان' : 'إضافة امتحان'}</h2>
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">اسم الامتحان *</label>
-                <input
-                  type="text"
-                  value={formData.name}
-                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  className="w-full px-4 py-2 rounded-xl border-2 border-slate-200 focus:border-emerald-500 focus:outline-none"
-                  required
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">وصف الامتحان (اختياري)</label>
-                <textarea
-                  value={formData.description}
-                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                  className="w-full px-4 py-2 rounded-xl border-2 border-slate-200 focus:border-emerald-500 focus:outline-none"
-                  rows={3}
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">وقت الظهور</label>
-                <div className="space-y-2">
-                  <label className="flex items-center gap-2">
-                    <input
-                      type="radio"
-                      value="now"
-                      checked={formData.publish_now === 'now'}
-                      onChange={(e) => setFormData({ ...formData, publish_now: e.target.value })}
-                    />
-                    <span>حالاً</span>
-                  </label>
-                  <label className="flex items-center gap-2">
-                    <input
-                      type="radio"
-                      value="schedule"
-                      checked={formData.publish_now === 'schedule'}
-                      onChange={(e) => setFormData({ ...formData, publish_now: e.target.value })}
-                    />
-                    <span>وقت تاني (بتوقيت القاهرة)</span>
-                  </label>
-                  {formData.publish_now === 'schedule' && (
-                    <input
-                      type="datetime-local"
-                      value={formData.publish_date}
-                      onChange={(e) => setFormData({ ...formData, publish_date: e.target.value })}
-                      className="w-full px-4 py-2 rounded-xl border-2 border-slate-200 focus:border-emerald-500 focus:outline-none"
-                    />
+                  {scheduled ? (
+                    <span className="px-2.5 py-1 rounded-full bg-orange-50 text-orange-700 text-xs font-medium flex items-center gap-1">
+                      <Calendar className="w-3 h-3" />
+                      هيظهر {formatCairo(x.publish_at!)}
+                    </span>
+                  ) : (
+                    <span className="px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 text-xs font-medium flex items-center gap-1">
+                      <Eye className="w-3 h-3" />
+                      ظاهر للطلبة
+                    </span>
                   )}
                 </div>
+
+                <h3 className="text-lg font-bold text-slate-900 mb-1">{x.name}</h3>
+                {x.description && <p className="text-sm text-slate-500 mb-3 line-clamp-2">{x.description}</p>}
+
+                <div className="grid grid-cols-3 gap-2 my-3 text-center">
+                  <div className="rounded-xl bg-slate-50 py-2"><div className="font-bold text-slate-800">{st?.questions ?? 0}</div><div className="text-[11px] text-slate-500">سؤال</div></div>
+                  <div className="rounded-xl bg-sky-50 py-2"><div className="font-bold text-sky-700">{st?.attempts ?? 0}</div><div className="text-[11px] text-sky-600">حل</div></div>
+                  <div className="rounded-xl bg-amber-50 py-2"><div className="font-bold text-amber-700">{st?.avg_score != null ? `${st.avg_score}%` : '-'}</div><div className="text-[11px] text-amber-600">المتوسط</div></div>
+                </div>
+
+                <div className="mt-auto flex items-center gap-2 pt-2">
+                  <button onClick={() => navigate(`/admin/exams/${x.id}/questions`)} className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 text-white text-sm font-semibold">
+                    <ListChecks className="w-4 h-4" />
+                    تعديل الأسئلة
+                  </button>
+                  <button onClick={() => navigate(`/admin/import?examId=${x.id}`)} className="p-2.5 rounded-xl bg-teal-50 text-teal-700 hover:bg-teal-100" title="رفع أسئلة من Excel" aria-label="رفع Excel">
+                    <FileSpreadsheet className="w-4 h-4" />
+                  </button>
+                  <button onClick={() => openEdit(x)} className="p-2.5 rounded-xl text-slate-600 hover:bg-slate-100" aria-label="تعديل"><Edit className="w-4 h-4" /></button>
+                  <button onClick={() => remove(x)} className="p-2.5 rounded-xl text-red-600 hover:bg-red-50" aria-label="مسح"><Trash2 className="w-4 h-4" /></button>
+                </div>
               </div>
-              <div className="flex gap-2">
-                <button type="submit" className="flex-1 py-2 px-4 bg-emerald-600 text-white rounded-xl">حفظ</button>
-                <button type="button" onClick={() => setShowModal(false)} className="flex-1 py-2 px-4 bg-slate-100 text-slate-700 rounded-xl">إلغاء</button>
-              </div>
-            </form>
-          </div>
+            )
+          })}
         </div>
       )}
-    </div>
+
+      {open && (
+        <Modal
+          title={editing ? 'تعديل الامتحان' : 'ضيف امتحان جديد'}
+          onClose={() => !saving && setOpen(false)}
+          maxWidth="max-w-md"
+          footer={
+            <div className="flex gap-2">
+              <button form="exam-form" type="submit" disabled={saving} className="flex-1 py-3 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 text-white font-bold disabled:opacity-60">{saving ? 'بيتحفظ...' : 'حفظ'}</button>
+              <button type="button" onClick={() => setOpen(false)} disabled={saving} className="px-6 py-3 rounded-xl bg-white border-2 border-slate-200 text-slate-700">إلغاء</button>
+            </div>
+          }
+        >
+          <form id="exam-form" onSubmit={save} className="space-y-5">
+            <div>
+              <label className="block text-sm font-semibold text-slate-700 mb-2">اسم الامتحان *</label>
+              <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="w-full px-4 py-2.5 rounded-xl border-2 border-slate-200 focus:border-emerald-500 focus:outline-none" autoFocus />
+            </div>
+            <div>
+              <label className="block text-sm font-semibold text-slate-700 mb-2">وصف (اختياري)</label>
+              <textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} rows={3} className="w-full px-4 py-2.5 rounded-xl border-2 border-slate-200 focus:border-emerald-500 focus:outline-none" />
+            </div>
+            <div>
+              <label className="block text-sm font-semibold text-slate-700 mb-2">يظهر للطلبة امتى؟</label>
+              <div className="grid grid-cols-2 gap-2 p-1 rounded-xl bg-slate-100 mb-3">
+                {([['now', 'دلوقتي'], ['schedule', 'في ميعاد معين']] as const).map(([v, label]) => (
+                  <button key={v} type="button" onClick={() => setForm({ ...form, mode: v })} className={`py-2 rounded-lg text-sm font-semibold ${form.mode === v ? 'bg-white text-emerald-700 shadow' : 'text-slate-500'}`}>{label}</button>
+                ))}
+              </div>
+              {form.mode === 'schedule' && (
+                <>
+                  <input type="datetime-local" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} className="w-full px-4 py-2.5 rounded-xl border-2 border-slate-200 focus:border-emerald-500 focus:outline-none" />
+                  <p className="text-xs text-slate-500 mt-2">الميعاد بتوقيت القاهرة، والظهور بيتحدد بساعة السيرفر مش جهاز الطالب.</p>
+                </>
+              )}
+            </div>
+          </form>
+        </Modal>
+      )}
+    </AdminLayout>
   )
 }

@@ -1,236 +1,117 @@
-import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { ArrowRight, Plus, Trash2, Menu, X, Home, LogOut, UserCog } from 'lucide-react'
+import { useState } from 'react'
+import { Plus, Shield, Trash2, UserCog } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
+import { useLive } from '../../lib/live'
+import AdminLayout from '../../components/admin/AdminLayout'
+import Modal from '../../components/admin/Modal'
+import { confirmDialog, toast } from '../../components/admin/feedback'
 
-interface AdminUser {
-  id: string
-  name: string
-  phone: string
-  password: string
-  role: string
-  created_at: string
-}
+interface AdminUser { id: string; name: string; phone: string; role: string }
 
 export default function AdminUsers() {
-  const navigate = useNavigate()
-  const [users, setUsers] = useState<AdminUser[]>([])
-  const [showModal, setShowModal] = useState(false)
-  const [formData, setFormData] = useState({ name: '', phone: '', password: '', role: 'admin' })
-  const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [open, setOpen] = useState(false)
+  const [form, setForm] = useState({ name: '', phone: '', password: '', role: 'admin' })
+  const [saving, setSaving] = useState(false)
 
-  useEffect(() => {
-    const auth = localStorage.getItem('admin_auth')
-    if (auth !== 'true') {
-      navigate('/admin/login')
-      return
-    }
-    const user = localStorage.getItem('admin_user')
-    if (user) {
-      const parsed = JSON.parse(user)
-      if (parsed.role !== 'super_admin') {
-        navigate('/admin')
-        return
-      }
-    }
-    fetchUsers()
-  }, [])
-
-  const fetchUsers = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('admins')
-        .select('*')
-        .order('created_at', { ascending: false })
+  const { data, loading, connected, reload } = useLive<AdminUser[]>(
+    async () => {
+      const { data, error } = await supabase.from('admins').select('*').order('created_at', { ascending: false })
       if (error) throw error
-      setUsers(data || [])
-    } catch (error) {
-      console.error('Error:', error)
-    }
-  }
+      return (data || []) as AdminUser[]
+    },
+    ['admins']
+  )
+  const users = data || []
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const save = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (!form.name.trim() || !form.phone.trim() || !form.password) return toast('املا كل الخانات', 'error')
+    setSaving(true)
     try {
-      const { error } = await supabase.from('admins').insert([formData])
+      const { error } = await supabase.from('admins').insert({ name: form.name.trim(), phone: form.phone.trim(), password: form.password, role: form.role })
       if (error) throw error
-      setShowModal(false)
-      setFormData({ name: '', phone: '', password: '', role: 'admin' })
-      fetchUsers()
-    } catch (error) {
-      alert('حدث خطأ')
+      toast('الأدمن اتضاف ✅')
+      setOpen(false)
+      setForm({ name: '', phone: '', password: '', role: 'admin' })
+      reload()
+    } catch (err: any) {
+      toast(err?.message || 'حصلت مشكلة', 'error')
+    } finally {
+      setSaving(false)
     }
   }
 
-  const handleDelete = async (id: string) => {
-    if (!confirm('هل أنت متأكد من حذف هذا المستخدم؟')) return
-    try {
-      const { error } = await supabase.from('admins').delete().eq('id', id)
-      if (error) throw error
-      fetchUsers()
-    } catch (error) {
-      alert('حدث خطأ')
-    }
+  const remove = async (u: AdminUser) => {
+    const ok = await confirmDialog({ title: `تمسح الأدمن "${u.name}"؟`, confirmText: 'امسح', danger: true })
+    if (!ok) return
+    const { error } = await supabase.from('admins').delete().eq('id', u.id)
+    if (error) return toast(error.message, 'error')
+    toast('الأدمن اتمسح')
+    reload()
   }
 
-  const logout = () => {
-    localStorage.removeItem('admin_auth')
-    localStorage.removeItem('admin_user')
-    navigate('/admin/login')
-  }
-
-  const menuItems = [
-    { icon: Home, label: 'الرئيسية', path: '/admin' },
-    { icon: UserCog, label: 'الامتحانات', path: '/admin/exams' },
-    { icon: UserCog, label: 'إدارة المستخدمين', path: '/admin/users' }
-  ]
+  const input = 'w-full px-4 py-2.5 rounded-xl border-2 border-slate-200 focus:border-emerald-500 focus:outline-none'
 
   return (
-    <div className="min-h-screen bg-slate-50 flex">
-      <aside className={`fixed inset-y-0 right-0 z-50 w-64 bg-slate-900 transform ${sidebarOpen ? 'translate-x-0' : 'translate-x-full'} lg:translate-x-0 transition-transform duration-200 ease-in-out`}>
-        <div className="flex items-center justify-between h-16 px-4 border-b border-slate-800">
-          <div className="flex items-center gap-3">
-            <img src={`${import.meta.env.BASE_URL}logo.jpg`} alt="Logo" className="w-10 h-10 rounded-full" />
-            <span className="text-white font-bold">شاشة الأدمن</span>
-          </div>
-          <button onClick={() => setSidebarOpen(false)} className="lg:hidden text-slate-400 hover:text-white">
-            <X className="w-5 h-5" />
-          </button>
-        </div>
-        <nav className="p-4 space-y-2">
-          {menuItems.map((item) => (
-            <button
-              key={item.path}
-              onClick={() => { navigate(item.path); setSidebarOpen(false) }}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-colors ${
-                item.path === '/admin/users' ? 'bg-emerald-600 text-white' : 'text-slate-300 hover:bg-slate-800 hover:text-white'
-              }`}
-            >
-              <item.icon className="w-5 h-5" />
-              <span>{item.label}</span>
-            </button>
-          ))}
-        </nav>
-        <div className="absolute bottom-4 right-4 left-4">
-          <button onClick={logout} className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-red-400 hover:bg-red-500/10 transition-colors">
-            <LogOut className="w-5 h-5" />
-            <span>خروج</span>
-          </button>
-        </div>
-      </aside>
-
-      <div className="flex-1 lg:mr-64">
-        <header className="bg-white border-b border-slate-200 sticky top-0 z-40">
-          <div className="px-4 sm:px-6 lg:px-8 py-4 flex items-center justify-between">
-            <button onClick={() => setSidebarOpen(true)} className="lg:hidden p-2 hover:bg-slate-100 rounded-lg">
-              <Menu className="w-5 h-5" />
-            </button>
-            <h1 className="text-lg font-bold text-slate-900">إدارة المستخدمين</h1>
-            <button onClick={() => navigate('/admin')} className="p-2 hover:bg-slate-100 rounded-lg">
-              <Home className="w-5 h-5" />
-            </button>
-          </div>
-        </header>
-
-        <main className="p-4 sm:p-6 lg:p-8">
-          <div className="flex items-center justify-between mb-6">
-            <button onClick={() => navigate('/admin')} className="flex items-center gap-2 text-slate-600 hover:text-slate-900">
-              <ArrowRight className="w-4 h-4" />
-              <span>العودة</span>
-            </button>
-            <button onClick={() => setShowModal(true)} className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 text-white rounded-xl">
-              <Plus className="w-4 h-4" />
-              إضافة أدمن
-            </button>
-          </div>
-
-          <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead className="bg-slate-50">
-                  <tr>
-                    <th className="text-right p-4 text-sm font-semibold text-slate-700">الاسم</th>
-                    <th className="text-right p-4 text-sm font-semibold text-slate-700">رقم التليفون</th>
-                    <th className="text-right p-4 text-sm font-semibold text-slate-700">الصلاحية</th>
-                    <th className="text-center p-4 text-sm font-semibold text-slate-700">إجراءات</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {users.map((user) => (
-                    <tr key={user.id} className="border-b border-slate-100 last:border-0">
-                      <td className="p-4 text-slate-900">{user.name}</td>
-                      <td className="p-4 text-slate-600">{user.phone}</td>
-                      <td className="p-4 text-slate-600">{user.role === 'super_admin' ? 'سوبر أدمن' : 'أدمن'}</td>
-                      <td className="p-4 text-center">
-                        {user.role !== 'super_admin' && (
-                          <button onClick={() => handleDelete(user.id)} className="p-2 text-red-600 hover:bg-red-50 rounded-lg">
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+    <AdminLayout
+      title="المستخدمين"
+      subtitle="مين يقدر يدخل لوحة التحكم"
+      live={connected}
+      actions={
+        <button onClick={() => setOpen(true)} className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 text-white font-medium shadow-lg shadow-emerald-600/20">
+          <Plus className="w-4 h-4" />
+          ضيف أدمن
+        </button>
+      }
+    >
+      {loading ? (
+        <div className="h-40 rounded-3xl bg-slate-200/60 animate-pulse" />
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+          {users.map((u) => (
+            <div key={u.id} className="bg-white rounded-3xl border border-slate-200 shadow-sm p-5 flex items-center gap-4">
+              <div className={`w-12 h-12 rounded-2xl flex items-center justify-center flex-shrink-0 ${u.role === 'super_admin' ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                {u.role === 'super_admin' ? <Shield className="w-6 h-6" /> : <UserCog className="w-6 h-6" />}
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="font-bold text-slate-900 truncate">{u.name}</div>
+                <div className="text-sm text-slate-500" dir="ltr" style={{ textAlign: 'right' }}>{u.phone}</div>
+                <div className="text-xs mt-1 text-slate-400">{u.role === 'super_admin' ? 'سوبر أدمن' : 'أدمن'}</div>
+              </div>
+              {u.role !== 'super_admin' && (
+                <button onClick={() => remove(u)} className="p-2 rounded-lg text-red-600 hover:bg-red-50" aria-label="مسح"><Trash2 className="w-4 h-4" /></button>
+              )}
             </div>
-          </div>
-        </main>
-      </div>
-
-      {showModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl p-6 w-full max-w-md">
-            <h2 className="text-xl font-bold text-slate-900 mb-4">إضافة أدمن جديد</h2>
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">الاسم *</label>
-                <input
-                  type="text"
-                  value={formData.name}
-                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  className="w-full px-4 py-2 rounded-xl border-2 border-slate-200 focus:border-emerald-500 focus:outline-none"
-                  required
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">رقم التليفون *</label>
-                <input
-                  type="tel"
-                  value={formData.phone}
-                  onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                  className="w-full px-4 py-2 rounded-xl border-2 border-slate-200 focus:border-emerald-500 focus:outline-none"
-                  required
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">كلمة المرور *</label>
-                <input
-                  type="password"
-                  value={formData.password}
-                  onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                  className="w-full px-4 py-2 rounded-xl border-2 border-slate-200 focus:border-emerald-500 focus:outline-none"
-                  required
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">الصلاحية</label>
-                <select
-                  value={formData.role}
-                  onChange={(e) => setFormData({ ...formData, role: e.target.value })}
-                  className="w-full px-4 py-2 rounded-xl border-2 border-slate-200 focus:border-emerald-500 focus:outline-none"
-                >
-                  <option value="admin">أدمن</option>
-                  <option value="editor">محرر</option>
-                </select>
-              </div>
-              <div className="flex gap-2">
-                <button type="submit" className="flex-1 py-2 px-4 bg-emerald-600 text-white rounded-xl">حفظ</button>
-                <button type="button" onClick={() => setShowModal(false)} className="flex-1 py-2 px-4 bg-slate-100 text-slate-700 rounded-xl">إلغاء</button>
-              </div>
-            </form>
-          </div>
+          ))}
         </div>
       )}
-    </div>
+
+      {open && (
+        <Modal
+          title="ضيف أدمن جديد"
+          onClose={() => !saving && setOpen(false)}
+          maxWidth="max-w-md"
+          footer={
+            <div className="flex gap-2">
+              <button form="user-form" type="submit" disabled={saving} className="flex-1 py-3 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 text-white font-bold disabled:opacity-60">{saving ? 'بيتحفظ...' : 'حفظ'}</button>
+              <button type="button" onClick={() => setOpen(false)} disabled={saving} className="px-6 py-3 rounded-xl bg-white border-2 border-slate-200 text-slate-700">إلغاء</button>
+            </div>
+          }
+        >
+          <form id="user-form" onSubmit={save} className="space-y-4">
+            <div><label className="block text-sm font-semibold text-slate-700 mb-2">الاسم *</label><input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className={input} autoFocus /></div>
+            <div><label className="block text-sm font-semibold text-slate-700 mb-2">رقم التليفون *</label><input type="tel" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} className={input} /></div>
+            <div><label className="block text-sm font-semibold text-slate-700 mb-2">كلمة المرور *</label><input type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} className={input} /></div>
+            <div>
+              <label className="block text-sm font-semibold text-slate-700 mb-2">الصلاحية</label>
+              <select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })} className={input}>
+                <option value="admin">أدمن</option>
+                <option value="super_admin">سوبر أدمن</option>
+              </select>
+            </div>
+          </form>
+        </Modal>
+      )}
+    </AdminLayout>
   )
 }

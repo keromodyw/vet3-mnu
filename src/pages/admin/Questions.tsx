@@ -1,326 +1,155 @@
-import { useEffect, useState } from 'react'
+import { useDeferredValue, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { ArrowRight, Plus, Trash2, Edit, FileSpreadsheet, ImagePlus, X } from 'lucide-react'
+import { FileSpreadsheet, ListChecks, Plus, Search } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
-import { compressImage, storagePathFromUrl } from '../../lib/image'
+import { useLive } from '../../lib/live'
+import { fuzzySearch, queryTokens } from '../../lib/search'
+import { isEssay, type QuestionRow } from '../../lib/questionType'
+import { storagePathFromUrl } from '../../lib/image'
+import AdminLayout from '../../components/admin/AdminLayout'
+import QuestionCard from '../../components/admin/QuestionCard'
+import QuestionEditor from '../../components/admin/QuestionEditor'
+import { confirmDialog, toast } from '../../components/admin/feedback'
 
-interface Question {
-  id: string
-  question_text: string
-  option_a: string | null
-  option_b: string | null
-  option_c: string | null
-  option_d: string | null
-  correct_answer: string
-  explanation: string | null
-  image_url: string | null
-  order_index: number
-}
+type Filter = 'all' | 'mcq' | 'essay'
 
 export default function AdminQuestions() {
   const { examId } = useParams()
   const navigate = useNavigate()
-  const [questions, setQuestions] = useState<Question[]>([])
-  const [examName, setExamName] = useState('')
-  const [loading, setLoading] = useState(true)
-  const [showModal, setShowModal] = useState(false)
-  const [formData, setFormData] = useState({
-    question_text: '', option_a: '', option_b: '', option_c: '', option_d: '',
-    correct_answer: 'A', explanation: ''
-  })
-  const [editingId, setEditingId] = useState<string | null>(null)
-  const [imageFile, setImageFile] = useState<File | null>(null)
-  const [imagePreview, setImagePreview] = useState('')
-  const [existingImageUrl, setExistingImageUrl] = useState<string | null>(null)
-  const [saving, setSaving] = useState(false)
+  const [query, setQuery] = useState('')
+  const deferred = useDeferredValue(query)
+  const [filter, setFilter] = useState<Filter>('all')
+  const [editor, setEditor] = useState<{ q: QuestionRow | null } | null>(null)
 
-  const emptyForm = { question_text: '', option_a: '', option_b: '', option_c: '', option_d: '', correct_answer: 'A', explanation: '' }
-
-  const resetImageState = () => {
-    setImageFile(null)
-    setImagePreview('')
-    setExistingImageUrl(null)
-  }
-
-  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    e.target.value = ''
-    if (!file) return
-    if (!file.type.startsWith('image/')) { alert('اختار ملف صورة فقط'); return }
-    if (file.size > 15 * 1024 * 1024) { alert('حجم الصورة كبير (الحد الأقصى 15MB)'); return }
-    setImageFile(file)
-    setImagePreview(URL.createObjectURL(file))
-  }
-
-  const removeImage = () => {
-    setImageFile(null)
-    setImagePreview('')
-    setExistingImageUrl(null)
-  }
-
-  const uploadQuestionImage = async (file: File) => {
-    const compressed = await compressImage(file)
-    const ext = (compressed.name.split('.').pop() || 'jpg').toLowerCase()
-    const path = `questions/${crypto.randomUUID()}.${ext}`
-    const { error } = await supabase.storage.from('images').upload(path, compressed, {
-      contentType: compressed.type || undefined,
-      cacheControl: '31536000',
-    })
-    if (error) throw error
-    return supabase.storage.from('images').getPublicUrl(path).data.publicUrl
-  }
-
-  useEffect(() => {
-    const auth = localStorage.getItem('admin_auth')
-    if (auth !== 'true') {
-      navigate('/admin/login')
-      return
-    }
-    fetchData()
-  }, [])
-
-  const fetchData = async () => {
-    try {
-      const [{ data: exam }, { data: questionsData }] = await Promise.all([
-        supabase.from('exams').select('name').eq('id', examId).single(),
-        supabase.from('questions').select('*').eq('exam_id', examId).order('order_index')
+  const { data, loading, connected, reload } = useLive(
+    async () => {
+      const [ex, qs] = await Promise.all([
+        supabase.from('exams').select('name, course_id').eq('id', examId).single(),
+        supabase.from('questions').select('*').eq('exam_id', examId).order('order_index', { ascending: true }),
       ])
-      if (exam) setExamName(exam.name)
-      setQuestions(questionsData || [])
-    } catch (error) {
-      console.error('Error:', error)
-    } finally {
-      setLoading(false)
+      let courseName = ''
+      if (ex.data?.course_id) {
+        const c = await supabase.from('courses').select('name').eq('id', ex.data.course_id).single()
+        courseName = c.data?.name || ''
+      }
+      return { examName: (ex.data?.name as string) || '', courseId: (ex.data?.course_id as string) || '', courseName, questions: (qs.data || []) as QuestionRow[] }
+    },
+    ['questions', 'exams']
+  )
+
+  const all = data?.questions || []
+  const tokens = useMemo(() => queryTokens(deferred), [deferred])
+
+  const numbered = useMemo(() => all.map((q, i) => ({ q, n: i + 1 })), [all])
+  const visible = useMemo(() => {
+    let list = numbered
+    if (filter !== 'all') list = list.filter((x) => (filter === 'essay') === isEssay(x.q))
+    if (tokens.length) {
+      const hits = fuzzySearch(list, deferred, (x) => [
+        { text: x.q.question_text, weight: 1 },
+        { text: [x.q.option_a, x.q.option_b, x.q.option_c, x.q.option_d].filter(Boolean).join(' '), weight: 0.7 },
+        { text: x.q.explanation || '', weight: 0.5 },
+      ], 500)
+      return hits.map((h) => h.item)
     }
-  }
+    return list
+  }, [numbered, filter, deferred, tokens.length])
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setSaving(true)
-    try {
-      const original = editingId ? questions.find(q => q.id === editingId)?.image_url ?? null : null
-      let image_url: string | null = existingImageUrl
+  const essayCount = all.filter(isEssay).length
+  const withImage = all.filter((q) => q.image_url).length
 
-      if (imageFile) {
-        image_url = await uploadQuestionImage(imageFile)
-      }
-
-      const payload = { ...formData, image_url }
-
-      if (editingId) {
-        const { error } = await supabase.from('questions').update(payload).eq('id', editingId)
-        if (error) throw error
-      } else {
-        const { error } = await supabase.from('questions').insert({
-          ...payload,
-          exam_id: examId,
-          order_index: questions.length
-        })
-        if (error) throw error
-      }
-
-      // clean up the old file if it was replaced or removed
-      if (original && original !== image_url) {
-        const oldPath = storagePathFromUrl(original)
-        if (oldPath) await supabase.storage.from('images').remove([oldPath])
-      }
-
-      setShowModal(false)
-      setFormData(emptyForm)
-      setEditingId(null)
-      resetImageState()
-      fetchData()
-    } catch (error: any) {
-      console.error(error)
-      alert('حدث خطأ: ' + (error?.message || 'غير معروف'))
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  const handleEdit = (q: Question) => {
-    setFormData({
-      question_text: q.question_text,
-      option_a: q.option_a || '',
-      option_b: q.option_b || '',
-      option_c: q.option_c || '',
-      option_d: q.option_d || '',
-      correct_answer: q.correct_answer,
-      explanation: q.explanation || ''
-    })
-    setImageFile(null)
-    setImagePreview('')
-    setExistingImageUrl(q.image_url || null)
-    setEditingId(q.id)
-    setShowModal(true)
-  }
-
-  const handleDelete = async (q: Question) => {
-    if (!confirm('هل أنت متأكد من حذف هذا السؤال؟')) return
+  const remove = async (q: QuestionRow) => {
+    const ok = await confirmDialog({ title: 'تمسح السؤال ده؟', message: 'مش هتقدر ترجعه تاني.', confirmText: 'امسح', danger: true })
+    if (!ok) return
     try {
       const { error } = await supabase.from('questions').delete().eq('id', q.id)
       if (error) throw error
       const path = storagePathFromUrl(q.image_url)
       if (path) await supabase.storage.from('images').remove([path])
-      fetchData()
-    } catch (error) {
-      alert('حدث خطأ')
+      toast('السؤال اتمسح')
+      reload()
+    } catch (err: any) {
+      toast(err?.message || 'حصلت مشكلة', 'error')
     }
   }
 
+  const chip = (v: Filter, label: string, n: number) => (
+    <button
+      key={v}
+      onClick={() => setFilter(v)}
+      className={`px-4 py-2 rounded-full text-sm font-semibold border-2 transition-colors ${filter === v ? 'bg-slate-900 border-slate-900 text-white' : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300'}`}
+    >
+      {label} <span className={filter === v ? 'text-slate-300' : 'text-slate-400'}>{n}</span>
+    </button>
+  )
+
   return (
-    <div className="min-h-screen bg-slate-50">
-      <header className="bg-white border-b border-slate-200">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <button onClick={() => navigate(-1)} className="p-2 hover:bg-slate-100 rounded-lg">
-                <ArrowRight className="w-5 h-5" />
-              </button>
-              <div>
-                <h1 className="text-lg font-bold text-slate-900">إدارة الأسئلة</h1>
-                <p className="text-xs text-slate-500">{examName}</p>
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              <button onClick={() => navigate(`/admin/import?examId=${examId}`)} className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 text-slate-700 rounded-xl hover:bg-slate-50">
-                <FileSpreadsheet className="w-4 h-4" />
-                تحميل الأسئلة من ملف Excel
-              </button>
-              <button onClick={() => { setShowModal(true); setFormData(emptyForm); setEditingId(null); resetImageState() }} className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 text-white rounded-xl">
-                <Plus className="w-4 h-4" />
-                إضافة سؤال
-              </button>
-            </div>
+    <AdminLayout
+      title={data?.examName || 'الأسئلة'}
+      subtitle={data?.courseName ? `${data.courseName} › تعديل الأسئلة` : 'تعديل الأسئلة'}
+      live={connected}
+      back={{ label: 'رجوع للامتحانات', to: data?.courseId ? `/admin/courses/${data.courseId}/exams` : '/admin/exams' }}
+      actions={
+        <>
+          <button onClick={() => navigate(`/admin/import?examId=${examId}`)} className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white border-2 border-slate-200 text-slate-700 font-medium hover:border-emerald-300">
+            <FileSpreadsheet className="w-4 h-4" />
+            رفع من Excel
+          </button>
+          <button onClick={() => setEditor({ q: null })} className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 text-white font-medium shadow-lg shadow-emerald-600/20">
+            <Plus className="w-4 h-4" />
+            ضيف سؤال
+          </button>
+        </>
+      }
+    >
+      <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-4 mb-5 space-y-3">
+        <div className="relative">
+          <Search className="absolute right-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="دوّر في أسئلة الامتحان ده..."
+            className="w-full pr-12 pl-4 py-3 rounded-2xl bg-slate-50 border-2 border-transparent focus:bg-white focus:border-emerald-400 focus:outline-none"
+          />
+        </div>
+        <div className="flex items-center gap-2 flex-wrap">
+          {chip('all', 'الكل', all.length)}
+          {chip('mcq', 'اختيار من متعدد', all.length - essayCount)}
+          {chip('essay', 'مقالي', essayCount)}
+          {withImage > 0 && <span className="text-xs text-slate-400 mr-auto">{withImage} سؤال بصورة</span>}
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="space-y-4">{[0, 1, 2].map((i) => <div key={i} className="h-40 rounded-3xl bg-slate-200/60 animate-pulse" />)}</div>
+      ) : all.length === 0 ? (
+        <div className="text-center py-16 bg-white rounded-3xl border border-slate-200">
+          <ListChecks className="w-12 h-12 text-slate-300 mx-auto mb-4" />
+          <p className="text-slate-600 mb-4">مفيش أسئلة في الامتحان ده لسه</p>
+          <div className="flex items-center justify-center gap-2">
+            <button onClick={() => setEditor({ q: null })} className="px-5 py-2.5 bg-emerald-600 text-white rounded-xl">ضيف سؤال</button>
+            <button onClick={() => navigate(`/admin/import?examId=${examId}`)} className="px-5 py-2.5 bg-white border-2 border-slate-200 rounded-xl">ارفع Excel</button>
           </div>
         </div>
-      </header>
-
-      <main className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {loading ? (
-          <div className="text-center py-12">جاري التحميل...</div>
-        ) : questions.length === 0 ? (
-          <div className="text-center py-12 bg-white rounded-2xl">
-            <p className="text-slate-600">لا توجد أسئلة بعد</p>
-          </div>
-        ) : (
-          <div className="space-y-4">
-            {questions.map((q, idx) => (
-              <div key={q.id} className="bg-white rounded-2xl p-6 shadow-sm border border-slate-200">
-                <div className="flex items-start justify-between mb-4">
-                  <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-700 font-bold text-sm">
-                      {idx + 1}
-                    </div>
-                    <span className="text-xs px-2 py-1 rounded-full bg-emerald-50 text-emerald-700">الإجابة: {q.correct_answer}</span>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <button onClick={() => handleEdit(q)} className="p-2 text-slate-600 hover:bg-slate-100 rounded-lg">
-                      <Edit className="w-4 h-4" />
-                    </button>
-                    <button onClick={() => handleDelete(q)} className="p-2 text-red-600 hover:bg-red-50 rounded-lg">
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                </div>
-                <p dir="auto" className="text-slate-900 font-medium mb-4 text-start whitespace-pre-line">{q.question_text}</p>
-                {q.image_url && (
-                  <img src={q.image_url} alt="" loading="lazy" className="mb-4 max-h-48 rounded-xl border border-slate-200" />
-                )}
-                <div className="space-y-2 text-sm">
-                  {q.option_a && <div className="p-2 bg-slate-50 rounded-lg">أ: {q.option_a}</div>}
-                  {q.option_b && <div className="p-2 bg-slate-50 rounded-lg">ب: {q.option_b}</div>}
-                  {q.option_c && <div className="p-2 bg-slate-50 rounded-lg">ج: {q.option_c}</div>}
-                  {q.option_d && <div className="p-2 bg-slate-50 rounded-lg">د: {q.option_d}</div>}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </main>
-
-      {showModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50 overflow-y-auto">
-          <div className="bg-white rounded-2xl p-6 w-full max-w-2xl my-8">
-            <h2 className="text-xl font-bold text-slate-900 mb-4">{editingId ? 'تعديل سؤال' : 'إضافة سؤال'}</h2>
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">نص السؤال *</label>
-                <textarea
-                  value={formData.question_text}
-                  onChange={(e) => setFormData({ ...formData, question_text: e.target.value })}
-                  className="w-full px-4 py-2 rounded-xl border-2 border-slate-200 focus:border-emerald-500 focus:outline-none"
-                  rows={3}
-                  required
-                />
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-2">الخيار أ</label>
-                  <input type="text" value={formData.option_a} onChange={(e) => setFormData({ ...formData, option_a: e.target.value })} className="w-full px-4 py-2 rounded-xl border-2 border-slate-200 focus:border-emerald-500 focus:outline-none" />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-2">الخيار ب</label>
-                  <input type="text" value={formData.option_b} onChange={(e) => setFormData({ ...formData, option_b: e.target.value })} className="w-full px-4 py-2 rounded-xl border-2 border-slate-200 focus:border-emerald-500 focus:outline-none" />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-2">الخيار ج</label>
-                  <input type="text" value={formData.option_c} onChange={(e) => setFormData({ ...formData, option_c: e.target.value })} className="w-full px-4 py-2 rounded-xl border-2 border-slate-200 focus:border-emerald-500 focus:outline-none" />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-2">الخيار د</label>
-                  <input type="text" value={formData.option_d} onChange={(e) => setFormData({ ...formData, option_d: e.target.value })} className="w-full px-4 py-2 rounded-xl border-2 border-slate-200 focus:border-emerald-500 focus:outline-none" />
-                </div>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">الإجابة الصحيحة *</label>
-                <select value={formData.correct_answer} onChange={(e) => setFormData({ ...formData, correct_answer: e.target.value })} className="w-full px-4 py-2 rounded-xl border-2 border-slate-200 focus:border-emerald-500 focus:outline-none">
-                  <option value="A">أ</option>
-                  <option value="B">ب</option>
-                  <option value="C">ج</option>
-                  <option value="D">د</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">صورة السؤال (اختياري)</label>
-                {(imagePreview || existingImageUrl) ? (
-                  <div className="relative inline-block">
-                    <img src={imagePreview || existingImageUrl || ''} alt="" className="max-h-52 rounded-xl border-2 border-slate-200" />
-                    <button type="button" onClick={removeImage} className="absolute -top-2 -left-2 w-8 h-8 rounded-full bg-red-600 text-white flex items-center justify-center shadow-lg" aria-label="حذف الصورة">
-                      <X className="w-4 h-4" />
-                    </button>
-                  </div>
-                ) : (
-                  <label className="flex flex-col items-center justify-center gap-2 py-6 rounded-xl border-2 border-dashed border-slate-300 text-slate-500 hover:border-emerald-500 hover:text-emerald-700 hover:bg-emerald-50/40 cursor-pointer transition-colors">
-                    <ImagePlus className="w-7 h-7" />
-                    <span className="text-sm">اضغط لاختيار صورة</span>
-                    <input type="file" accept="image/*" onChange={handleImageChange} className="hidden" />
-                  </label>
-                )}
-                {(imagePreview || existingImageUrl) && (
-                  <label className="inline-block mt-2 text-sm text-emerald-700 cursor-pointer hover:underline">
-                    تغيير الصورة
-                    <input type="file" accept="image/*" onChange={handleImageChange} className="hidden" />
-                  </label>
-                )}
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">شرح الإجابة (اختياري)</label>
-                <textarea
-                  value={formData.explanation}
-                  onChange={(e) => setFormData({ ...formData, explanation: e.target.value })}
-                  className="w-full px-4 py-2 rounded-xl border-2 border-slate-200 focus:border-emerald-500 focus:outline-none"
-                  rows={2}
-                />
-              </div>
-              <div className="flex gap-2">
-                <button type="submit" disabled={saving} className="flex-1 py-2 px-4 bg-emerald-600 text-white rounded-xl disabled:opacity-60">{saving ? 'جاري الحفظ...' : 'حفظ'}</button>
-                <button type="button" disabled={saving} onClick={() => setShowModal(false)} className="flex-1 py-2 px-4 bg-slate-100 text-slate-700 rounded-xl">إلغاء</button>
-              </div>
-            </form>
-          </div>
+      ) : visible.length === 0 ? (
+        <div className="text-center py-14 bg-white rounded-3xl border border-slate-200 text-slate-500">مفيش سؤال مطابق للبحث ده</div>
+      ) : (
+        <div className="space-y-4">
+          {visible.map(({ q, n }) => (
+            <QuestionCard key={q.id} q={q} number={n} tokens={tokens} onEdit={() => setEditor({ q })} onDelete={() => remove(q)} />
+          ))}
         </div>
       )}
-    </div>
+
+      {editor && (
+        <QuestionEditor
+          question={editor.q}
+          examId={examId || ''}
+          nextOrder={all.length}
+          onClose={() => setEditor(null)}
+          onSaved={reload}
+        />
+      )}
+    </AdminLayout>
   )
 }

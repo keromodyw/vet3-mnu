@@ -1,171 +1,178 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Users, FileText, LogOut, Home, Menu, X, Folder, UserCog } from 'lucide-react'
+import { Award, Database, FileText, Users } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
+import { useLive } from '../../lib/live'
+import { formatDuration, num, timeAgo } from '../../lib/format'
+import AdminLayout from '../../components/admin/AdminLayout'
+import AnimatedNumber from '../../components/admin/AnimatedNumber'
+
+interface Day { day: string; visitors: number; attempts: number }
+interface Stats {
+  unique_visitors: number
+  visits_total: number
+  visitors_today: number
+  attempts_total: number
+  attempts_today: number
+  avg_score: number | null
+  courses: number
+  exams: number
+  questions: number
+  daily: Day[] | null
+  recent: { id: number; score: number; correct: number; total: number; time_taken: number | null; created_at: string; exam_name: string }[]
+  top_exams: { id: string; name: string; attempts: number; avg_score: number | null }[]
+}
+
+function DailyChart({ data }: { data: Day[] }) {
+  const W = 700, H = 230, L = 36, R = 8, T = 14, B = 30
+  const max = Math.max(5, ...data.flatMap((d) => [d.visitors, d.attempts]))
+  const top = Math.ceil(max / 5) * 5
+  const iw = W - L - R
+  const ih = H - T - B
+  const gw = iw / data.length
+  const bw = Math.min(14, gw / 2.7)
+  const y = (v: number) => T + ih - (v / top) * ih
+  const ticks = [0, 0.25, 0.5, 0.75, 1].map((p) => Math.round(top * p))
+
+  return (
+    <div dir="ltr" className="w-full overflow-x-auto">
+      <svg viewBox={`0 0 ${W} ${H}`} className="w-full min-w-[520px]" role="img" aria-label="الزوار والحلول آخر 14 يوم">
+        {ticks.map((t) => (
+          <g key={t}>
+            <line x1={L} x2={W - R} y1={y(t)} y2={y(t)} className="stroke-slate-100" />
+            <text x={L - 6} y={y(t) + 4} textAnchor="end" className="fill-slate-400" fontSize="10">{t}</text>
+          </g>
+        ))}
+        {data.map((d, i) => {
+          const cx = L + i * gw + gw / 2
+          const [, m, dd] = d.day.split('-')
+          return (
+            <g key={d.day}>
+              <rect x={cx - bw - 1} y={y(d.visitors)} width={bw} height={ih - (y(d.visitors) - T)} rx="3" className="fill-emerald-500">
+                <title>{`${dd}/${m} — زوار: ${d.visitors}`}</title>
+              </rect>
+              <rect x={cx + 1} y={y(d.attempts)} width={bw} height={ih - (y(d.attempts) - T)} rx="3" className="fill-sky-500">
+                <title>{`${dd}/${m} — حلول: ${d.attempts}`}</title>
+              </rect>
+              <text x={cx} y={H - 10} textAnchor="middle" className="fill-slate-400" fontSize="10">{`${Number(dd)}/${Number(m)}`}</text>
+            </g>
+          )
+        })}
+      </svg>
+    </div>
+  )
+}
 
 export default function AdminDashboard() {
   const navigate = useNavigate()
-  const [stats, setStats] = useState({ visitors: 0, submissions: 0 })
-  const [examStats, setExamStats] = useState<any[]>([])
-  const [loading, setLoading] = useState(true)
-  const [sidebarOpen, setSidebarOpen] = useState(false)
-  const [adminUser, setAdminUser] = useState<any>(null)
+  const [setupError, setSetupError] = useState(false)
 
-  useEffect(() => {
-    const auth = localStorage.getItem('admin_auth')
-    if (auth !== 'true') {
-      navigate('/admin/login')
-      return
-    }
-    const user = localStorage.getItem('admin_user')
-    if (user) setAdminUser(JSON.parse(user))
-    fetchStats()
-  }, [])
+  const { data: stats, loading, connected, updatedAt } = useLive<Stats | null>(
+    async () => {
+      const { data, error } = await supabase.rpc('admin_stats')
+      if (error) {
+        setSetupError(true)
+        throw error
+      }
+      setSetupError(false)
+      return data as Stats
+    },
+    ['exam_attempts', 'site_visits', 'exams', 'questions', 'courses'],
+    10000
+  )
 
-  const fetchStats = async () => {
-    try {
-      const [visitorsRes, examsRes, questionsRes] = await Promise.all([
-        supabase.from('visitors').select('id', { count: 'exact', head: true }),
-        supabase.from('exams').select('*'),
-        supabase.from('questions').select('exam_id')
-      ])
-      
-      // Count submissions per exam (approximate - count questions attempted)
-      const submissions = questionsRes.data?.length || 0
-      
-      setStats({
-        visitors: visitorsRes.count || 0,
-        submissions: submissions
-      })
-      
-      const exams = examsRes.data || []
-      const examData = await Promise.all(exams.map(async (exam) => {
-        const { count } = await supabase
-          .from('questions')
-          .select('*', { count: 'exact', head: true })
-          .eq('exam_id', exam.id)
-        return { ...exam, submissions: count || 0 }
-      }))
-      setExamStats(examData)
-    } catch (error) {
-      console.error('Error:', error)
-    } finally {
-      setLoading(false)
-    }
-  }
+  let userName = ''
+  try { userName = JSON.parse(localStorage.getItem('admin_user') || 'null')?.name || '' } catch { /* ignore */ }
 
-  const logout = () => {
-    localStorage.removeItem('admin_auth')
-    localStorage.removeItem('admin_user')
-    navigate('/admin/login')
-  }
-
-  const menuItems = [
-    { icon: Home, label: 'الرئيسية', path: '/admin' },
-    { icon: Folder, label: 'الامتحانات', path: '/admin/exams' },
-    ...(adminUser?.role === 'super_admin' ? [{ icon: UserCog, label: 'إدارة المستخدمين', path: '/admin/users' }] : [])
+  const cards = [
+    { label: 'الزوار', value: stats?.unique_visitors ?? 0, sub: `النهارده: ${num(stats?.visitors_today)} · إجمالي الزيارات: ${num(stats?.visits_total)}`, icon: Users, tint: 'from-emerald-500 to-teal-600' },
+    { label: 'عدد الحلول', value: stats?.attempts_total ?? 0, sub: `النهارده: ${num(stats?.attempts_today)}`, icon: FileText, tint: 'from-sky-500 to-blue-600' },
+    { label: 'متوسط الدرجات', value: stats?.avg_score ?? 0, suffix: '%', sub: 'على كل المحاولات', icon: Award, tint: 'from-amber-500 to-orange-600' },
+    { label: 'الأسئلة', value: stats?.questions ?? 0, sub: `${num(stats?.exams)} امتحان · ${num(stats?.courses)} مادة`, icon: Database, tint: 'from-violet-500 to-purple-600' },
   ]
 
   return (
-    <div className="min-h-screen bg-slate-50 flex">
-      {/* Sidebar */}
-      <aside className={`fixed inset-y-0 right-0 z-50 w-64 bg-slate-900 transform ${sidebarOpen ? 'translate-x-0' : 'translate-x-full'} lg:translate-x-0 transition-transform duration-200 ease-in-out`}>
-        <div className="flex items-center justify-between h-16 px-4 border-b border-slate-800">
-          <div className="flex items-center gap-3">
-            <img src={`${import.meta.env.BASE_URL}logo.jpg`} alt="Logo" className="w-10 h-10 rounded-full" />
-            <span className="text-white font-bold">شاشة الأدمن</span>
-          </div>
-          <button onClick={() => setSidebarOpen(false)} className="lg:hidden text-slate-400 hover:text-white">
-            <X className="w-5 h-5" />
-          </button>
+    <AdminLayout title={`أهلاً${userName ? ' يا ' + userName : ''} 👋`} subtitle="ده ملخص اللي بيحصل على الموقع دلوقتي" live={connected}>
+      {setupError && (
+        <div className="mb-6 p-4 rounded-2xl bg-amber-50 border border-amber-200 text-amber-900 text-sm leading-relaxed">
+          <b>العدّادات محتاجة تجهيز مرة واحدة:</b> افتح Supabase ← SQL Editor وشغّل ملف <code className="px-1 bg-amber-100 rounded">admin_upgrade.sql</code>، وبعدها الأرقام هتشتغل لحظيًا.
         </div>
-        <nav className="p-4 space-y-2">
-          {menuItems.map((item) => (
-            <button
-              key={item.path}
-              onClick={() => { navigate(item.path); setSidebarOpen(false) }}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-colors ${
-                location.pathname === item.path ? 'bg-emerald-600 text-white' : 'text-slate-300 hover:bg-slate-800 hover:text-white'
-              }`}
-            >
-              <item.icon className="w-5 h-5" />
-              <span>{item.label}</span>
-            </button>
-          ))}
-        </nav>
-        <div className="absolute bottom-4 right-4 left-4">
-          <button onClick={logout} className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-red-400 hover:bg-red-500/10 transition-colors">
-            <LogOut className="w-5 h-5" />
-            <span>خروج</span>
-          </button>
-        </div>
-      </aside>
+      )}
 
-      {/* Main Content */}
-      <div className="flex-1 lg:mr-64">
-        <header className="bg-white border-b border-slate-200 sticky top-0 z-40">
-          <div className="px-4 sm:px-6 lg:px-8 py-4 flex items-center justify-between">
-            <button onClick={() => setSidebarOpen(true)} className="lg:hidden p-2 hover:bg-slate-100 rounded-lg">
-              <Menu className="w-5 h-5" />
-            </button>
-            <h1 className="text-lg font-bold text-slate-900">شاشة الأدمن</h1>
-            <div className="flex items-center gap-2">
-              <button onClick={() => navigate('/')} className="p-2 hover:bg-slate-100 rounded-lg">
-                <Home className="w-5 h-5" />
-              </button>
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
+        {cards.map((c) => (
+          <div key={c.label} className="relative overflow-hidden bg-white rounded-3xl p-5 border border-slate-200 shadow-sm">
+            <div className={`absolute -top-8 -left-8 w-28 h-28 rounded-full bg-gradient-to-br ${c.tint} opacity-10`} />
+            <div className="flex items-center justify-between mb-3 relative">
+              <span className="text-sm font-medium text-slate-500">{c.label}</span>
+              <span className={`w-10 h-10 rounded-2xl bg-gradient-to-br ${c.tint} flex items-center justify-center shadow-lg`}>
+                <c.icon className="w-5 h-5 text-white" />
+              </span>
             </div>
+            <div className="text-4xl font-extrabold text-slate-900 relative tabular-nums">
+              {loading ? '...' : <AnimatedNumber value={Number(c.value)} suffix={c.suffix} />}
+            </div>
+            <div className="text-xs text-slate-500 mt-2 relative">{c.sub}</div>
           </div>
-        </header>
-
-        <main className="p-4 sm:p-6 lg:p-8">
-          <div className="mb-8">
-            <h2 className="text-2xl font-bold text-slate-900 mb-2">الإحصائيات</h2>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8">
-            <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-200">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-slate-600">عدد الزوار</span>
-                <Users className="w-5 h-5 text-blue-600" />
-              </div>
-              <div className="text-3xl font-bold text-slate-900">{loading ? '...' : stats.visitors}</div>
-            </div>
-            <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-200">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-slate-600">إجمالي عدد الحلول</span>
-                <FileText className="w-5 h-5 text-emerald-600" />
-              </div>
-              <div className="text-3xl font-bold text-slate-900">{loading ? '...' : stats.submissions}</div>
-            </div>
-          </div>
-
-          <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-            <div className="p-6 border-b border-slate-200">
-              <h3 className="text-lg font-bold text-slate-900">إحصائيات الامتحانات</h3>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead className="bg-slate-50">
-                  <tr>
-                    <th className="text-right p-4 text-sm font-semibold text-slate-700">اسم الامتحان</th>
-                    <th className="text-right p-4 text-sm font-semibold text-slate-700">المادة</th>
-                    <th className="text-center p-4 text-sm font-semibold text-slate-700">عدد الحلول</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {examStats.map((exam) => (
-                    <tr key={exam.id} className="border-b border-slate-100 last:border-0">
-                      <td className="p-4 text-slate-900">{exam.name}</td>
-                      <td className="p-4 text-slate-600">{exam.subject || '-'}</td>
-                      <td className="p-4 text-center text-slate-900 font-medium">{exam.submissions}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </main>
+        ))}
       </div>
-    </div>
+
+      <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-5 sm:p-6 mb-6">
+        <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+          <div>
+            <h3 className="font-bold text-slate-900">آخر 14 يوم</h3>
+            <p className="text-xs text-slate-500">بتوقيت القاهرة{updatedAt ? ` · آخر تحديث ${updatedAt.toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}` : ''}</p>
+          </div>
+          <div className="flex items-center gap-4 text-xs text-slate-600">
+            <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-emerald-500" /> زوار</span>
+            <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-sky-500" /> حلول</span>
+          </div>
+        </div>
+        {stats?.daily ? <DailyChart data={stats.daily} /> : <div className="h-40 flex items-center justify-center text-slate-400 text-sm">{loading ? 'بيحمّل...' : 'مفيش داتا لسه'}</div>}
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
+          <div className="px-6 py-4 border-b border-slate-100 font-bold text-slate-900">أكتر الامتحانات حلًا</div>
+          {stats && stats.top_exams.length > 0 ? (
+            <div className="divide-y divide-slate-100">
+              {stats.top_exams.map((e, i) => (
+                <div key={e.id} className="px-6 py-3 flex items-center gap-3">
+                  <span className="w-7 h-7 rounded-full bg-emerald-50 text-emerald-700 text-sm font-bold flex items-center justify-center">{i + 1}</span>
+                  <span className="flex-1 min-w-0 truncate text-slate-800">{e.name}</span>
+                  <span className="text-xs text-slate-500">متوسط {e.avg_score ?? 0}%</span>
+                  <span className="px-2.5 py-1 rounded-full bg-sky-50 text-sky-700 text-sm font-bold tabular-nums">{num(e.attempts)}</span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="p-8 text-center text-sm text-slate-400">لسه محدش حل امتحان</div>
+          )}
+        </div>
+
+        <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
+          <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
+            <span className="font-bold text-slate-900">آخر الحلول</span>
+            <button onClick={() => navigate('/admin/exams')} className="text-xs text-emerald-700 hover:underline">كل الامتحانات</button>
+          </div>
+          {stats && stats.recent.length > 0 ? (
+            <div className="divide-y divide-slate-100">
+              {stats.recent.map((r) => (
+                <div key={r.id} className="px-6 py-3 flex items-center gap-3">
+                  <span className={`w-11 text-center py-1 rounded-lg text-sm font-bold ${r.score >= 60 ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-600'}`}>{r.score}%</span>
+                  <div className="flex-1 min-w-0">
+                    <div className="truncate text-slate-800 text-sm">{r.exam_name}</div>
+                    <div className="text-xs text-slate-400">{r.correct}/{r.total} صح · {formatDuration(r.time_taken)}</div>
+                  </div>
+                  <span className="text-xs text-slate-400 whitespace-nowrap">{timeAgo(r.created_at)}</span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="p-8 text-center text-sm text-slate-400">مفيش حلول لسه</div>
+          )}
+        </div>
+      </div>
+    </AdminLayout>
   )
 }
