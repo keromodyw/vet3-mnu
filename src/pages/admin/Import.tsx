@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import * as XLSX from 'xlsx'
 import { CheckCircle2, Download, FileSpreadsheet, Upload, XCircle } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
+import { normalize } from '../../lib/search'
 import AdminLayout from '../../components/admin/AdminLayout'
 import { toast } from '../../components/admin/feedback'
 
@@ -49,19 +50,57 @@ function downloadTemplate() {
   XLSX.writeFile(wb, 'template-questions.xlsx')
 }
 
+interface Cols { question: number; a: number; b: number; c: number; d: number; answer: number; explanation: number; image: number }
+const DEFAULT_COLS: Cols = { question: 1, a: 2, b: 3, c: 4, d: 5, answer: 6, explanation: 7, image: 8 }
+
+// header names we understand (compared after Arabic/English normalisation)
+const NAMES: Record<keyof Cols, string[]> = {
+  question: ['question', 'q', 'السؤال', 'نص السؤال'],
+  a: ['a', 'أ', 'option a', 'choice a', 'الخيار أ', 'الاختيار أ'],
+  b: ['b', 'ب', 'option b', 'choice b', 'الخيار ب', 'الاختيار ب'],
+  c: ['c', 'ج', 'option c', 'choice c', 'الخيار ج', 'الاختيار ج'],
+  d: ['d', 'د', 'option d', 'choice d', 'الخيار د', 'الاختيار د'],
+  answer: ['answer', 'correct', 'correct answer', 'right answer', 'الإجابة الصحيحة', 'الإجابة', 'الاجابة الصحيحة'],
+  explanation: ['explanation', 'الشرح'],
+  image: ['image', 'image url', 'رابط الصورة', 'الصورة'],
+}
+const NORMALISED = Object.fromEntries(
+  (Object.keys(NAMES) as (keyof Cols)[]).map((k) => [k, NAMES[k].map((n) => normalize(n))])
+) as Record<keyof Cols, string[]>
+
+// find the columns by their header text; falls back to the template order
+function detectColumns(header: unknown[]): Cols {
+  const found: Partial<Cols> = {}
+  header.forEach((h, idx) => {
+    const n = normalize(cell(h))
+    if (!n) return
+    ;(Object.keys(NORMALISED) as (keyof Cols)[]).forEach((k) => {
+      if (found[k] === undefined && NORMALISED[k].includes(n)) found[k] = idx
+    })
+  })
+  const ok = found.question !== undefined && found.a !== undefined && found.b !== undefined && found.answer !== undefined
+  if (!ok) return DEFAULT_COLS
+  return { ...{ question: -1, a: -1, b: -1, c: -1, d: -1, answer: -1, explanation: -1, image: -1 }, ...found } as Cols
+}
+
 function parseSheet(rows: unknown[][]): { ok: ParsedRow[]; errors: RowError[] } {
   const ok: ParsedRow[] = []
   const errors: RowError[] = []
+  const headerIdx = rows.findIndex((r) => r.some((c) => cell(c) !== ''))
+  if (headerIdx < 0) return { ok, errors }
+  const cols = detectColumns(rows[headerIdx])
+  const get = (r: unknown[], i: number) => (i >= 0 ? cell(r[i]) : '')
+
   rows.forEach((r, i) => {
-    if (i === 0) return // header row
+    if (i <= headerIdx) return // header row (and anything above it)
     const rowNo = i + 1
-    const text = cell(r[1])
-    const a = cell(r[2]), b = cell(r[3]), c = cell(r[4]), d = cell(r[5])
+    const text = get(r, cols.question)
+    const a = get(r, cols.a), b = get(r, cols.b), c = get(r, cols.c), d = get(r, cols.d)
     if (!text && !a && !b && !c && !d) return // empty line
     if (!text) return errors.push({ row: rowNo, reason: 'نص السؤال فاضي' })
 
-    const explanation = cell(r[7]) || null
-    const image_url = cell(r[8]) || null
+    const explanation = get(r, cols.explanation) || null
+    const image_url = get(r, cols.image) || null
 
     // essay: only column "أ" is filled
     if (a && !b && !c && !d) {
@@ -71,7 +110,7 @@ function parseSheet(rows: unknown[][]): { ok: ParsedRow[]; errors: RowError[] } 
     const filled = [a, b, c, d].filter(Boolean).length
     if (filled < 2) return errors.push({ row: rowNo, reason: 'محتاج اختيارين على الأقل (أو مقالي: عمود أ بس)' })
 
-    const letter = LETTER_MAP[cell(r[6]).toUpperCase()]
+    const letter = LETTER_MAP[get(r, cols.answer).toUpperCase()]
     if (!letter) return errors.push({ row: rowNo, reason: 'الإجابة الصحيحة مش مكتوبة صح (A/B/C/D)' })
     const chosen = { A: a, B: b, C: c, D: d }[letter]
     if (!chosen) return errors.push({ row: rowNo, reason: `الإجابة الصحيحة ${letter} بس الاختيار ده فاضي` })
@@ -107,7 +146,14 @@ export default function AdminImport() {
       const buf = await file.arrayBuffer()
       const wb = XLSX.read(buf, { type: 'array' })
       const ws = wb.Sheets[wb.SheetNames[0]]
-      const rows = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, defval: '' })
+      const ref = ws['!ref']
+      let rows: unknown[][] = []
+      if (ref) {
+        const range = XLSX.utils.decode_range(ref)
+        range.s.c = 0 // an empty first column makes the sheet "start" at B and shifts everything
+        range.s.r = 0
+        rows = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, defval: '', range: XLSX.utils.encode_range(range) })
+      }
       setFileName(file.name)
       setFailures([])
       setParsed(parseSheet(rows))
