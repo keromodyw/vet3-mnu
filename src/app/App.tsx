@@ -1,4 +1,6 @@
+import { useEffect } from 'react'
 import { Routes, Route } from 'react-router-dom'
+import { trackVisit } from '../lib/analytics'
 import Home from '../pages/Home'
 import Quiz from '../pages/Quiz'
 import Results from '../pages/Results'
@@ -10,8 +12,13 @@ import AdminExams from '../pages/admin/Exams'
 import AdminQuestions from '../pages/admin/Questions'
 import AdminImport from '../pages/admin/Import'
 import AdminUsers from '../pages/admin/Users'
+import AdminSearch from '../pages/admin/Search'
 
 function App() {
+  useEffect(() => {
+    if (!window.location.pathname.includes('/admin')) trackVisit()
+  }, [])
+
   return (
     <Routes>
       <Route path="/" element={<Home />} />
@@ -25,6 +32,7 @@ function App() {
       <Route path="/admin/exams/:examId/questions" element={<AdminQuestions />} />
       <Route path="/admin/import" element={<AdminImport />} />
       <Route path="/admin/users" element={<AdminUsers />} />
+      <Route path="/admin/search" element={<AdminSearch />} />
     </Routes>
   )
 }
