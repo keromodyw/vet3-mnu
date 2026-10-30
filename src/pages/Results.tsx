@@ -60,7 +60,7 @@ export default function Results() {
             <Home className="w-5 h-5" />
             العودة للرئيسية
           </button>
-          <button onClick={() => navigate(-2)} className="flex-1 py-3 px-6 rounded-xl bg-white border-2 border-slate-200 text-slate-700 font-medium flex items-center justify-center gap-2">
+          <button onClick={() => navigate(result.examId ? `/quiz/${result.examId}` : '/')} className="flex-1 py-3 px-6 rounded-xl bg-white border-2 border-slate-200 text-slate-700 font-medium flex items-center justify-center gap-2">
             <RotateCcw className="w-5 h-5" />
             إعادة الامتحان
           </button>
@@ -88,7 +88,8 @@ export default function Results() {
                           {answer?.isCorrect ? 'صحيح' : 'خطأ'}
                         </span>
                       </div>
-                      <p className="text-slate-900 mb-4">{q.question_text}</p>
+                      <p dir="auto" className="text-slate-900 mb-4 text-start whitespace-pre-line">{q.question_text}</p>
+                      {q.image_url && <img src={q.image_url} alt="" loading="lazy" className="mb-4 max-w-full max-h-72 rounded-xl border border-slate-200" />}
                       
                       <div className="space-y-2">
                         {q.option_a && (
@@ -99,7 +100,7 @@ export default function Results() {
                           }`}>
                             <div className="flex items-center gap-3">
                               <span className="font-bold">أ</span>
-                              <span>{q.option_a}</span>
+                              <span dir="auto">{q.option_a}</span>
                               {q.correct_answer === 'A' && <span className="text-xs text-emerald-700 mr-auto">الإجابة الصحيحة</span>}
                             </div>
                           </div>
@@ -112,7 +113,7 @@ export default function Results() {
                           }`}>
                             <div className="flex items-center gap-3">
                               <span className="font-bold">ب</span>
-                              <span>{q.option_b}</span>
+                              <span dir="auto">{q.option_b}</span>
                               {q.correct_answer === 'B' && <span className="text-xs text-emerald-700 mr-auto">الإجابة الصحيحة</span>}
                             </div>
                           </div>
@@ -125,7 +126,7 @@ export default function Results() {
                           }`}>
                             <div className="flex items-center gap-3">
                               <span className="font-bold">ج</span>
-                              <span>{q.option_c}</span>
+                              <span dir="auto">{q.option_c}</span>
                               {q.correct_answer === 'C' && <span className="text-xs text-emerald-700 mr-auto">الإجابة الصحيحة</span>}
                             </div>
                           </div>
@@ -138,7 +139,7 @@ export default function Results() {
                           }`}>
                             <div className="flex items-center gap-3">
                               <span className="font-bold">د</span>
-                              <span>{q.option_d}</span>
+                              <span dir="auto">{q.option_d}</span>
                               {q.correct_answer === 'D' && <span className="text-xs text-emerald-700 mr-auto">الإجابة الصحيحة</span>}
                             </div>
                           </div>

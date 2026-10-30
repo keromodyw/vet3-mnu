@@ -182,7 +182,7 @@ export default function Home() {
         <div className="relative max-w-6xl mx-auto px-4 py-12 sm:py-16">
           <div className="text-center">
             <div className="inline-flex items-center justify-center w-24 h-24 rounded-full bg-white/95 backdrop-blur-sm mb-6 shadow-2xl p-2">
-              <img src="/logo.jpg" alt="Yalla Nezaker" className="w-full h-full object-contain rounded-full" />
+              <img src={`${import.meta.env.BASE_URL}logo.jpg`} alt="Yalla Nezaker" className="w-full h-full object-contain rounded-full" />
             </div>
             <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold text-white mb-4">يلا نذاكر؟</h1>
             <p className="text-xl sm:text-2xl text-emerald-50 mb-2">يلا نراجع للامتحان، مفيش وقت 😢</p>
