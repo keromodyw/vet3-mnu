@@ -339,8 +339,14 @@ export default function Quiz() {
               <Clock className="w-4 h-4" />
               {formatTime(elapsed)}
             </div>
-            <button onClick={() => setDrawerOpen(true)} className="lg:hidden p-2 rounded-lg bg-slate-100 text-slate-700" aria-label="قائمة الأسئلة">
-              <LayoutGrid className="w-5 h-5" />
+            <button
+              onClick={() => setDrawerOpen(true)}
+              className="lg:hidden flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-600 text-white text-sm font-bold shadow-md shadow-emerald-600/30 active:scale-95"
+              aria-label="قائمة الأسئلة"
+            >
+              <LayoutGrid className="w-4 h-4" />
+              الأسئلة
+              {flagged.size > 0 && <span className="w-2 h-2 rounded-full bg-orange-400" />}
             </button>
           </div>
           <div className="mt-3 flex items-center gap-3">
@@ -433,9 +439,6 @@ export default function Quiz() {
             )}
           </div>
 
-          <p className="hidden lg:block text-center text-xs text-slate-400 mt-4">
-            اختصارات: 1-4 للاختيار · ← التالي · → السابق · F للعلامة
-          </p>
         </main>
 
         {/* Desktop navigator */}
