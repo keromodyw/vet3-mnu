@@ -54,7 +54,7 @@ export default function AdminLogin() {
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
           <div className="inline-flex items-center justify-center w-24 h-24 rounded-full bg-white/95 backdrop-blur-sm mb-4 shadow-2xl p-2">
-            <img src="/logo.jpg" alt="Yalla Nezaker" className="w-full h-full object-contain rounded-full" />
+            <img src={`${import.meta.env.BASE_URL}logo.jpg`} alt="Yalla Nezaker" className="w-full h-full object-contain rounded-full" />
           </div>
           <h1 className="text-2xl font-bold text-white mb-2">شاشة الأدمن</h1>
         </div>

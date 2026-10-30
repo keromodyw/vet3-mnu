@@ -154,7 +154,7 @@ export default function AdminCourses() {
       <aside className={`fixed inset-y-0 right-0 z-50 w-64 bg-slate-900 transform ${sidebarOpen ? 'translate-x-0' : 'translate-x-full'} lg:translate-x-0 transition-transform duration-200 ease-in-out`}>
         <div className="flex items-center justify-between h-16 px-4 border-b border-slate-800">
           <div className="flex items-center gap-3">
-            <img src="/logo.jpg" alt="Logo" className="w-10 h-10 rounded-full" />
+            <img src={`${import.meta.env.BASE_URL}logo.jpg`} alt="Logo" className="w-10 h-10 rounded-full" />
             <span className="text-white font-bold">شاشة الأدمن</span>
           </div>
           <button onClick={() => setSidebarOpen(false)} className="lg:hidden text-slate-400 hover:text-white">

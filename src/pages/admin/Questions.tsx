@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { ArrowRight, Plus, Trash2, Edit, FileSpreadsheet } from 'lucide-react'
+import { ArrowRight, Plus, Trash2, Edit, FileSpreadsheet, ImagePlus, X } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
+import { compressImage, storagePathFromUrl } from '../../lib/image'
 
 interface Question {
   id: string
@@ -12,6 +13,7 @@ interface Question {
   option_d: string | null
   correct_answer: string
   explanation: string | null
+  image_url: string | null
   order_index: number
 }
 
@@ -27,6 +29,46 @@ export default function AdminQuestions() {
     correct_answer: 'A', explanation: ''
   })
   const [editingId, setEditingId] = useState<string | null>(null)
+  const [imageFile, setImageFile] = useState<File | null>(null)
+  const [imagePreview, setImagePreview] = useState('')
+  const [existingImageUrl, setExistingImageUrl] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
+
+  const emptyForm = { question_text: '', option_a: '', option_b: '', option_c: '', option_d: '', correct_answer: 'A', explanation: '' }
+
+  const resetImageState = () => {
+    setImageFile(null)
+    setImagePreview('')
+    setExistingImageUrl(null)
+  }
+
+  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+    if (!file.type.startsWith('image/')) { alert('اختار ملف صورة فقط'); return }
+    if (file.size > 15 * 1024 * 1024) { alert('حجم الصورة كبير (الحد الأقصى 15MB)'); return }
+    setImageFile(file)
+    setImagePreview(URL.createObjectURL(file))
+  }
+
+  const removeImage = () => {
+    setImageFile(null)
+    setImagePreview('')
+    setExistingImageUrl(null)
+  }
+
+  const uploadQuestionImage = async (file: File) => {
+    const compressed = await compressImage(file)
+    const ext = (compressed.name.split('.').pop() || 'jpg').toLowerCase()
+    const path = `questions/${crypto.randomUUID()}.${ext}`
+    const { error } = await supabase.storage.from('images').upload(path, compressed, {
+      contentType: compressed.type || undefined,
+      cacheControl: '31536000',
+    })
+    if (error) throw error
+    return supabase.storage.from('images').getPublicUrl(path).data.publicUrl
+  }
 
   useEffect(() => {
     const auth = localStorage.getItem('admin_auth')
@@ -54,24 +96,45 @@ export default function AdminQuestions() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    setSaving(true)
     try {
+      const original = editingId ? questions.find(q => q.id === editingId)?.image_url ?? null : null
+      let image_url: string | null = existingImageUrl
+
+      if (imageFile) {
+        image_url = await uploadQuestionImage(imageFile)
+      }
+
+      const payload = { ...formData, image_url }
+
       if (editingId) {
-        const { error } = await supabase.from('questions').update(formData).eq('id', editingId)
+        const { error } = await supabase.from('questions').update(payload).eq('id', editingId)
         if (error) throw error
       } else {
         const { error } = await supabase.from('questions').insert({
-          ...formData,
+          ...payload,
           exam_id: examId,
           order_index: questions.length
         })
         if (error) throw error
       }
+
+      // clean up the old file if it was replaced or removed
+      if (original && original !== image_url) {
+        const oldPath = storagePathFromUrl(original)
+        if (oldPath) await supabase.storage.from('images').remove([oldPath])
+      }
+
       setShowModal(false)
-      setFormData({ question_text: '', option_a: '', option_b: '', option_c: '', option_d: '', correct_answer: 'A', explanation: '' })
+      setFormData(emptyForm)
       setEditingId(null)
+      resetImageState()
       fetchData()
-    } catch (error) {
-      alert('حدث خطأ')
+    } catch (error: any) {
+      console.error(error)
+      alert('حدث خطأ: ' + (error?.message || 'غير معروف'))
+    } finally {
+      setSaving(false)
     }
   }
 
@@ -85,15 +148,20 @@ export default function AdminQuestions() {
       correct_answer: q.correct_answer,
       explanation: q.explanation || ''
     })
+    setImageFile(null)
+    setImagePreview('')
+    setExistingImageUrl(q.image_url || null)
     setEditingId(q.id)
     setShowModal(true)
   }
 
-  const handleDelete = async (id: string) => {
+  const handleDelete = async (q: Question) => {
     if (!confirm('هل أنت متأكد من حذف هذا السؤال؟')) return
     try {
-      const { error } = await supabase.from('questions').delete().eq('id', id)
+      const { error } = await supabase.from('questions').delete().eq('id', q.id)
       if (error) throw error
+      const path = storagePathFromUrl(q.image_url)
+      if (path) await supabase.storage.from('images').remove([path])
       fetchData()
     } catch (error) {
       alert('حدث خطأ')
@@ -119,7 +187,7 @@ export default function AdminQuestions() {
                 <FileSpreadsheet className="w-4 h-4" />
                 تحميل الأسئلة من ملف Excel
               </button>
-              <button onClick={() => { setShowModal(true); setFormData({ question_text: '', option_a: '', option_b: '', option_c: '', option_d: '', correct_answer: 'A', explanation: '' }); setEditingId(null) }} className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 text-white rounded-xl">
+              <button onClick={() => { setShowModal(true); setFormData(emptyForm); setEditingId(null); resetImageState() }} className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 text-white rounded-xl">
                 <Plus className="w-4 h-4" />
                 إضافة سؤال
               </button>
@@ -150,12 +218,15 @@ export default function AdminQuestions() {
                     <button onClick={() => handleEdit(q)} className="p-2 text-slate-600 hover:bg-slate-100 rounded-lg">
                       <Edit className="w-4 h-4" />
                     </button>
-                    <button onClick={() => handleDelete(q.id)} className="p-2 text-red-600 hover:bg-red-50 rounded-lg">
+                    <button onClick={() => handleDelete(q)} className="p-2 text-red-600 hover:bg-red-50 rounded-lg">
                       <Trash2 className="w-4 h-4" />
                     </button>
                   </div>
                 </div>
-                <p className="text-slate-900 font-medium mb-4">{q.question_text}</p>
+                <p dir="auto" className="text-slate-900 font-medium mb-4 text-start whitespace-pre-line">{q.question_text}</p>
+                {q.image_url && (
+                  <img src={q.image_url} alt="" loading="lazy" className="mb-4 max-h-48 rounded-xl border border-slate-200" />
+                )}
                 <div className="space-y-2 text-sm">
                   {q.option_a && <div className="p-2 bg-slate-50 rounded-lg">أ: {q.option_a}</div>}
                   {q.option_b && <div className="p-2 bg-slate-50 rounded-lg">ب: {q.option_b}</div>}
@@ -211,6 +282,29 @@ export default function AdminQuestions() {
                 </select>
               </div>
               <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">صورة السؤال (اختياري)</label>
+                {(imagePreview || existingImageUrl) ? (
+                  <div className="relative inline-block">
+                    <img src={imagePreview || existingImageUrl || ''} alt="" className="max-h-52 rounded-xl border-2 border-slate-200" />
+                    <button type="button" onClick={removeImage} className="absolute -top-2 -left-2 w-8 h-8 rounded-full bg-red-600 text-white flex items-center justify-center shadow-lg" aria-label="حذف الصورة">
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                ) : (
+                  <label className="flex flex-col items-center justify-center gap-2 py-6 rounded-xl border-2 border-dashed border-slate-300 text-slate-500 hover:border-emerald-500 hover:text-emerald-700 hover:bg-emerald-50/40 cursor-pointer transition-colors">
+                    <ImagePlus className="w-7 h-7" />
+                    <span className="text-sm">اضغط لاختيار صورة</span>
+                    <input type="file" accept="image/*" onChange={handleImageChange} className="hidden" />
+                  </label>
+                )}
+                {(imagePreview || existingImageUrl) && (
+                  <label className="inline-block mt-2 text-sm text-emerald-700 cursor-pointer hover:underline">
+                    تغيير الصورة
+                    <input type="file" accept="image/*" onChange={handleImageChange} className="hidden" />
+                  </label>
+                )}
+              </div>
+              <div>
                 <label className="block text-sm font-medium text-slate-700 mb-2">شرح الإجابة (اختياري)</label>
                 <textarea
                   value={formData.explanation}
@@ -220,8 +314,8 @@ export default function AdminQuestions() {
                 />
               </div>
               <div className="flex gap-2">
-                <button type="submit" className="flex-1 py-2 px-4 bg-emerald-600 text-white rounded-xl">حفظ</button>
-                <button type="button" onClick={() => setShowModal(false)} className="flex-1 py-2 px-4 bg-slate-100 text-slate-700 rounded-xl">إلغاء</button>
+                <button type="submit" disabled={saving} className="flex-1 py-2 px-4 bg-emerald-600 text-white rounded-xl disabled:opacity-60">{saving ? 'جاري الحفظ...' : 'حفظ'}</button>
+                <button type="button" disabled={saving} onClick={() => setShowModal(false)} className="flex-1 py-2 px-4 bg-slate-100 text-slate-700 rounded-xl">إلغاء</button>
               </div>
             </form>
           </div>
