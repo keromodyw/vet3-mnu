@@ -168,7 +168,7 @@ export default function QuestionEditor({ question, examId, nextOrder = 0, onClos
 
         {type === 'mcq' ? (
           <div>
-            <label className="block text-sm font-semibold text-slate-700 mb-2">الاختيارات (دوس على الدايرة عند الإجابة الصح)</label>
+            <label className="block text-sm font-semibold text-slate-700 mb-2">الاختيارات</label>
             <div className="space-y-2">
               {LETTERS.map((l) => (
                 <div key={l.key} className="flex items-center gap-3">
@@ -193,7 +193,7 @@ export default function QuestionEditor({ question, examId, nextOrder = 0, onClos
           </div>
         ) : (
           <div>
-            <label className="block text-sm font-semibold text-slate-700 mb-2">الإجابة النموذجية * (الطالب بيتصحح عليها)</label>
+            <label className="block text-sm font-semibold text-slate-700 mb-2">الإجابة النموذجية *</label>
             <textarea dir="auto" value={essayAnswer} onChange={(e) => setEssayAnswer(e.target.value)} rows={4} className={`${input} text-start`} />
           </div>
         )}

@@ -66,7 +66,7 @@ export default function AdminLayout({ title, subtitle, actions, back, live, chil
           <img src={`${import.meta.env.BASE_URL}logo.jpg`} alt="" className="w-9 h-9 rounded-full ring-2 ring-emerald-500/40" />
           <div className="leading-tight">
             <div className="text-white font-bold">يلا نذاكر</div>
-            <div className="text-[11px] text-emerald-300/80">لوحة التحكم</div>
+            <div className="text-[11px] text-emerald-300/80">شاشة الأدمن</div>
           </div>
         </div>
         <button onClick={() => setOpen(false)} className="lg:hidden text-slate-400 hover:text-white" aria-label="إغلاق">
@@ -159,14 +159,13 @@ export default function AdminLayout({ title, subtitle, actions, back, live, chil
 
             {live !== undefined && (
               <div
-                title={live ? 'الداتا بتتحدّث لحظيًا' : 'بيتحدّث تلقائي كل كام ثانية'}
                 className={`hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold ${live ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}
               >
                 <span className="relative flex h-2 w-2">
                   {live && <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />}
                   <span className={`relative inline-flex rounded-full h-2 w-2 ${live ? 'bg-emerald-500' : 'bg-slate-400'}`} />
                 </span>
-                {live ? 'مباشر' : 'تحديث تلقائي'}
+                {live ? 'لايف' : 'تحديث تلقائي'}
               </div>
             )}
           </div>
