@@ -19,7 +19,7 @@ export default function AdminLogin() {
     try {
       const { data, error: authError } = await supabase.auth.signInWithPassword({ email: phoneToEmail(phone), password })
       if (authError || !data.user) {
-        setError('رقم التليفون أو كلمة المرور غير صحيحة')
+        setError('رقم التليفون أو الباسورد مش صح')
         return
       }
       const admin = await getCurrentAdmin()
@@ -65,7 +65,7 @@ export default function AdminLogin() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-slate-300 mb-2">كلمة المرور</label>
+              <label className="block text-sm font-medium text-slate-300 mb-2">الباسورد</label>
               <div className="relative">
                 <Lock className="absolute right-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
                 <input
@@ -73,7 +73,7 @@ export default function AdminLogin() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   className="w-full pr-12 pl-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 transition-colors"
-                  placeholder="أدخل كلمة المرور"
+                  placeholder="**********"
                   required
                 />
               </div>
