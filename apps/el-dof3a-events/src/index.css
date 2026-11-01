@@ -1,0 +1,45 @@
+@import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Light = same family as yalla-nezaker (slate + emerald). Dark = slate-950. */
+:root {
+  --page: #f1f5f9; --surface: #ffffff; --ink: #0f172a; --muted: #64748b; --line: #e2e8f0;
+}
+.dark {
+  --page: #020617; --surface: #0f172a; --ink: #f1f5f9; --muted: #94a3b8; --line: #1e293b;
+}
+@theme inline {
+  --color-page: var(--page);
+  --color-surface: var(--surface);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-line: var(--line);
+}
+
+* {
+  font-family: 'Cairo', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+html { color-scheme: light; }
+html.dark { color-scheme: dark; }
+body {
+  margin: 0;
+  direction: rtl;
+  color: var(--ink);
+  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+  min-height: 100vh;
+}
+html.dark body { background: linear-gradient(135deg, #020617 0%, #0f172a 100%); }
+#root { min-height: 100vh; }
+
+@keyframes eld-fade { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+.q-enter { animation: eld-fade .25s ease-out; }
+@keyframes eld-scan { 0% { top: 8%; } 50% { top: 88%; } 100% { top: 8%; } }
+.md-scanline { position: absolute; left: 6%; right: 6%; height: 3px; border-radius: 3px; background: #34d399; box-shadow: 0 0 14px 2px #34d399; animation: eld-scan 2.2s ease-in-out infinite; }
+@keyframes eld-pop { 0% { transform: scale(.6); opacity: 0; } 60% { transform: scale(1.06); } 100% { transform: scale(1); opacity: 1; } }
+.md-pop { animation: eld-pop .35s ease-out; }
+@keyframes eld-glow { 0%,100% { filter: drop-shadow(0 0 4px rgba(253,224,71,.6)); } 50% { filter: drop-shadow(0 0 10px rgba(253,224,71,1)); } }
+.seat-selected { animation: eld-glow 1.4s ease-in-out infinite; }
+
+@keyframes eld-nudge { 0%,100% { transform: translate(0,0); } 20% { transform: translate(8px,0); } 40% { transform: translate(-8px,0); } 60% { transform: translate(0,-7px); } 80% { transform: translate(0,7px); } }
+.pan-hint { animation: eld-nudge 2.2s ease-in-out infinite; }

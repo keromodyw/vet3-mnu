@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Lock, Phone } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
+import { cacheAdmin, getCurrentAdmin, phoneToEmail } from '../../lib/adminAuth'
 
 export default function AdminLogin() {
   const navigate = useNavigate()
@@ -16,31 +17,18 @@ export default function AdminLogin() {
     setError('')
 
     try {
-      // Check super admin
-      if (phone === '01551711514' && password === 'admin123') {
-        localStorage.setItem('admin_auth', 'true')
-        localStorage.setItem('admin_user', JSON.stringify({ phone, role: 'super_admin', name: 'Super Admin' }))
-        navigate('/admin')
-        setLoading(false)
-        return
-      }
-
-      // Check other admins
-      const { data, error: dbError } = await supabase
-        .from('admins')
-        .select('*')
-        .eq('phone', phone)
-        .eq('password', password)
-        .single()
-
-      if (dbError || !data) {
+      const { data, error: authError } = await supabase.auth.signInWithPassword({ email: phoneToEmail(phone), password })
+      if (authError || !data.user) {
         setError('رقم التليفون أو كلمة المرور غير صحيحة')
-        setLoading(false)
         return
       }
-
-      localStorage.setItem('admin_auth', 'true')
-      localStorage.setItem('admin_user', JSON.stringify({ ...data, role: data.role || 'admin' }))
+      const admin = await getCurrentAdmin()
+      if (!admin) {
+        await supabase.auth.signOut()
+        setError('الحساب ده مش أدمن')
+        return
+      }
+      cacheAdmin(admin) // UI hint only, never used for permissions
       navigate('/admin')
     } catch (err) {
       setError('حدث خطأ أثناء تسجيل الدخول')

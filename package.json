@@ -5,15 +5,20 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "tsc -b && vite build && vite build -c vite.events.config.ts",
     "lint": "oxlint",
     "preview": "npm run build && wrangler pages dev dist",
-    "deploy": "npm run build && wrangler pages deploy dist --project-name=vet3-mnu"
+    "deploy": "npm run build && wrangler pages deploy dist --project-name=vet3-mnu",
+    "dev:events": "vite -c vite.events.config.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.118.0",
+    "@zxing/browser": "^0.1.5",
+    "@zxing/library": "^0.21.3",
     "clsx": "^2.1.1",
+    "jsbarcode": "^3.12.1",
     "lucide-react": "^1.62.0",
+    "qrcode-generator": "^1.4.4",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
     "react-router-dom": "^7.18.4",
@@ -23,6 +28,7 @@
   "devDependencies": {
     "@cloudflare/vite-plugin": "^1.65.0",
     "@tailwindcss/vite": "^4.3.3",
+    "@types/jsbarcode": "^3.8.0",
     "@types/node": "^24.19.2",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",

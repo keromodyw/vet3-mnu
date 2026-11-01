@@ -2,6 +2,8 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { ExternalLink, FileSpreadsheet, Folder, LayoutDashboard, LogOut, Menu, Search, UserCog, X, ArrowRight } from 'lucide-react'
 import { Toaster } from './feedback'
+import { supabase } from '../../lib/supabase'
+import { adminLogout, cacheAdmin, getCurrentAdmin } from '../../lib/adminAuth'
 
 interface Props {
   title: string
@@ -22,12 +24,21 @@ export default function AdminLayout({ title, subtitle, actions, back, live, chil
   const searchRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
-    if (localStorage.getItem('admin_auth') !== 'true') {
-      navigate('/admin/login', { replace: true })
-      return
-    }
-    try { setUser(JSON.parse(localStorage.getItem('admin_user') || 'null')) } catch { /* ignore */ }
-    setReady(true)
+    // the guard is the real Supabase session + a row in `admins`, not a localStorage flag
+    let alive = true
+    getCurrentAdmin().then(async (a) => {
+      if (!alive) return
+      if (!a) {
+        cacheAdmin(null)
+        await supabase.auth.signOut()
+        navigate('/admin/login', { replace: true })
+        return
+      }
+      cacheAdmin(a)
+      setUser(a)
+      setReady(true)
+    })
+    return () => { alive = false }
   }, [])
 
   useEffect(() => {
@@ -45,9 +56,8 @@ export default function AdminLayout({ title, subtitle, actions, back, live, chil
 
   if (!ready) return null
 
-  const logout = () => {
-    localStorage.removeItem('admin_auth')
-    localStorage.removeItem('admin_user')
+  const logout = async () => {
+    await adminLogout()
     navigate('/admin/login')
   }
 

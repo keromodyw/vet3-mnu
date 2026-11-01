@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Plus, Shield, Trash2, UserCog } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { useLive } from '../../lib/live'
+import { adminApi, normalizePhone } from '../../lib/adminAuth'
 import AdminLayout from '../../components/admin/AdminLayout'
 import Modal from '../../components/admin/Modal'
 import { confirmDialog, toast } from '../../components/admin/feedback'
@@ -26,10 +27,11 @@ export default function AdminUsers() {
   const save = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!form.name.trim() || !form.phone.trim() || !form.password) return toast('املا كل الخانات', 'error')
+    if (!/^01\d{9}$/.test(normalizePhone(form.phone))) return toast('رقم التليفون لازم يكون 11 رقم يبدأ بـ 01', 'error')
+    if (form.password.length < 8) return toast('كلمة المرور لازم تكون 8 حروف على الأقل', 'error')
     setSaving(true)
     try {
-      const { error } = await supabase.from('admins').insert({ name: form.name.trim(), phone: form.phone.trim(), password: form.password, role: form.role })
-      if (error) throw error
+      await adminApi('POST', { name: form.name.trim(), phone: normalizePhone(form.phone), password: form.password, role: form.role })
       toast('الأدمن اتضاف ✅')
       setOpen(false)
       setForm({ name: '', phone: '', password: '', role: 'admin' })
@@ -44,8 +46,7 @@ export default function AdminUsers() {
   const remove = async (u: AdminUser) => {
     const ok = await confirmDialog({ title: `تمسح الأدمن "${u.name}"؟`, confirmText: 'امسح', danger: true })
     if (!ok) return
-    const { error } = await supabase.from('admins').delete().eq('id', u.id)
-    if (error) return toast(error.message, 'error')
+    try { await adminApi('DELETE', { id: u.id }) } catch (err: any) { return toast(err?.message || 'حصلت مشكلة', 'error') }
     toast('الأدمن اتمسح')
     reload()
   }

@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { CheckCircle2, XCircle, Home, RotateCcw, Clock } from 'lucide-react'
 import { isEssay } from '../lib/questionType'
@@ -7,6 +8,8 @@ export default function Results() {
   const location = useLocation()
   const navigate = useNavigate()
   const { result, questions } = location.state || {}
+  // by default only the questions the student got wrong; one tap shows everything
+  const [view, setView] = useState<'wrong' | 'all'>('wrong')
 
   if (!result) {
     navigate('/')
@@ -69,10 +72,32 @@ export default function Results() {
         </div>
 
         <div className="bg-white rounded-2xl shadow-xl shadow-slate-200/50 p-6 sm:p-8">
-          <h2 className="text-xl font-bold text-slate-900 mb-6">مراجعة الإجابات</h2>
+          <h2 className="text-xl font-bold text-slate-900 mb-4">مراجعة الإجابات</h2>
+          <div className="flex gap-2 mb-6 p-1 rounded-2xl bg-slate-100">
+            <button
+              onClick={() => setView('wrong')}
+              className={`flex-1 py-2.5 px-3 rounded-xl text-sm font-semibold transition-all ${view === 'wrong' ? 'bg-white text-red-700 shadow' : 'text-slate-600 hover:text-slate-900'}`}
+            >
+              الأسئلة اللي حليتها غلط ({result.wrongAnswers})
+            </button>
+            <button
+              onClick={() => setView('all')}
+              className={`flex-1 py-2.5 px-3 rounded-xl text-sm font-semibold transition-all ${view === 'all' ? 'bg-white text-emerald-700 shadow' : 'text-slate-600 hover:text-slate-900'}`}
+            >
+              الأسئلة كلها ({questions.length})
+            </button>
+          </div>
+          {view === 'wrong' && !questions.some((q: any) => !result.answers.find((a: any) => a.questionId === q.id)?.isCorrect) && (
+            <div className="text-center py-10">
+              <div className="text-5xl mb-3">🎉</div>
+              <p className="font-bold text-slate-900 mb-1">مفيش ولا سؤال غلط!</p>
+              <p className="text-slate-500 text-sm">دوس على «الأسئلة كلها» لو عايز تراجع الشرح.</p>
+            </div>
+          )}
           <div className="space-y-6">
             {questions.map((q: any, idx: number) => {
               const answer = result.answers.find((a: any) => a.questionId === q.id)
+              if (view === 'wrong' && answer?.isCorrect) return null
               return (
                 <div key={q.id} className="pb-6 border-b border-slate-200 last:border-0 last:pb-0">
                   <div className="flex items-start gap-3 mb-4">

@@ -93,11 +93,21 @@ export default function Home() {
     }
   }
 
-  const subjects = ['all', ...Array.from(new Set(exams.map(e => e.subject).filter(Boolean)))] as string[]
+  // the subject (المادة) of an exam = its course name; falls back to the free-text subject field
+  const subjectOf = (e: Exam): string | null =>
+    courses.find((c) => c.id === e.course_id)?.name || e.subject || null
+
+  const isPublic = (e: Exam) => !e.publish_at || new Date(e.publish_at).getTime() <= serverNow()
+  const subjectCounts = exams.reduce<Record<string, number>>((acc, e) => {
+    const s = subjectOf(e)
+    if (s && isPublic(e)) acc[s] = (acc[s] || 0) + 1
+    return acc
+  }, {})
+  const subjects = ['all', ...Object.keys(subjectCounts)]
 
   const filteredExams = exams.filter(exam => {
     const matchesSearch = exam.name.toLowerCase().includes(searchTerm.toLowerCase())
-    const matchesSubject = selectedSubject === 'all' || exam.subject === selectedSubject
+    const matchesSubject = selectedSubject === 'all' || subjectOf(exam) === selectedSubject
     const isPublished = !exam.publish_at || new Date(exam.publish_at).getTime() <= serverNow()
     return matchesSearch && matchesSubject && isPublished
   })
@@ -162,19 +172,20 @@ export default function Home() {
             </div>
             {subjects.length > 1 && (
               <div className="flex flex-col gap-2">
-                <span className="text-sm font-semibold text-slate-700">المواد:</span>
-                <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-sm font-semibold text-slate-700">فلتر بالمادة:</span>
+                <div className="flex items-center gap-2 overflow-x-auto pb-1 -mx-1 px-1 sm:flex-wrap">
                   {subjects.map((subject) => (
                     <button
                       key={subject}
                       onClick={() => setSelectedSubject(subject)}
-                      className={`px-4 py-2 rounded-xl text-sm font-medium transition-all ${
+                      className={`shrink-0 px-4 py-2 rounded-xl text-sm font-medium transition-all ${
                         selectedSubject === subject
                           ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-600/20'
                           : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
                       }`}
                     >
                       {subject === 'all' ? 'الكل' : subject}
+                      {subject !== 'all' && <span className="mr-1.5 opacity-70">{subjectCounts[subject]}</span>}
                     </button>
                   ))}
                 </div>
@@ -230,9 +241,9 @@ export default function Home() {
                         <h3 className="text-xl font-bold text-slate-900 group-hover:text-emerald-700 transition-colors flex-1">
                           {exam.name}
                         </h3>
-                        {exam.subject && (
+                        {subjectOf(exam) && (
                           <span className="px-3 py-1 rounded-full bg-emerald-50 text-emerald-700 text-xs font-medium mr-2">
-                            {exam.subject}
+                            {subjectOf(exam)}
                           </span>
                         )}
                       </div>
