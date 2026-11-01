@@ -78,7 +78,6 @@ export default function Book() {
   const phase = eventPhase(event, now)
   const mineSeat = booking ? seats.find((s) => s.label === booking.seat_label) : undefined
   const picked = seats.find((s) => s.id === selected)
-  const shownSeats = section === 'ALL' ? seats : seats.filter((s) => s.section === section)
   const freeIn = (k: string) => seats.filter((s) => s.section === k && seatView(s, now) === 'free'
     && (s.restriction === 'any' || s.restriction === student?.gender)).length
   const labels = stepLabels(event.booking_mode, payment)
@@ -197,7 +196,7 @@ export default function Book() {
                 </div>
               )}
               <HallPanel>
-                <SeatMap seats={shownSeats} now={now} gender={student.gender} mineId={mineSeat?.id} selectedIds={new Set(selected ? [selected] : [])}
+                <SeatMap seats={seats} focus={section} now={now} gender={student.gender} mineId={mineSeat?.id} selectedIds={new Set(selected ? [selected] : [])}
                   onSeat={(s) => setSelected((cur) => (cur === s.id ? null : s.id))}
                   minScale={1} maxHeightRatio={0.5} />
               </HallPanel>
