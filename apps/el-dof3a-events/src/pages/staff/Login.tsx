@@ -41,7 +41,7 @@ export default function StaffLogin() {
         <div className="relative"><Phone className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted" />
           <input className={`${inputCls} pr-11`} dir="ltr" type="tel" inputMode="tel" autoComplete="tel" placeholder="رقم التليفون" value={user} onChange={(e) => setUser(e.target.value)} required /></div>
         <div className="relative"><Lock className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted" />
-          <input className={`${inputCls} pr-11`} dir="ltr" type="password" autoComplete="current-password" placeholder="كلمة المرور" value={pass} onChange={(e) => setPass(e.target.value)} required /></div>
+          <input className={`${inputCls} pr-11`} dir="ltr" type="password" autoComplete="current-password" placeholder="الباسورد" value={pass} onChange={(e) => setPass(e.target.value)} required /></div>
         {err && <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-700 dark:text-red-300 text-sm leading-relaxed">{err}</div>}
         <button className={`${btnPrimary} w-full`} disabled={busy}>{busy ? <Spinner /> : 'دخول'}</button>
         <button type="button" className="w-full text-sm text-muted hover:text-ink" onClick={() => navigate('/')}>الرجوع للموقع</button>
