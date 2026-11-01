@@ -114,8 +114,8 @@ export default function Students() {
   return (
     <StaffLayout title="قاعدة الطلاب" roles={['super_admin']} wide
       actions={<>
-        <button className={btnGhost} onClick={template}><Download className="w-4 h-4" /> نموذج Excel</button>
-        <button className={btnGhost} onClick={() => fileRef.current?.click()}><Upload className="w-4 h-4" /> استيراد من Excel</button>
+        <button className={btnGhost} onClick={template}><Download className="w-4 h-4" /> Template Excel</button>
+        <button className={btnGhost} onClick={() => fileRef.current?.click()}><Upload className="w-4 h-4" /> import من Excel</button>
         <button className={btnPrimary} onClick={() => setAdding(true)}><Plus className="w-4 h-4" /> إضافة طالب</button>
         <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={(e) => void onFile(e.target.files?.[0])} />
       </>}>
