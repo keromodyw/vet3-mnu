@@ -65,10 +65,12 @@ interface Props {
   maxHeightRatio?: number
   /** never shrink the seats below this scale — the map becomes pannable instead of unreadable (used by the student picker) */
   minScale?: number
+  /** block key to bring into view (or 'ALL'). The hall itself never changes — the view glides to that block */
+  focus?: string
 }
 
 /** Always fits the screen; two-finger pinch / ctrl+wheel / buttons zoom, drag pans. Sits on a dark HallPanel. */
-export default function SeatMap({ seats, now, gender, mineId, selectedIds, onSeat, onRow, onSection, admin, readOnly, marks, maxHeightRatio = 0.6, minScale = 0 }: Props) {
+export default function SeatMap({ seats, now, gender, mineId, selectedIds, onSeat, onRow, onSection, admin, readOnly, marks, maxHeightRatio = 0.6, minScale = 0, focus }: Props) {
   // blocks come from the data (any letters, any order), rows from row_no, aisles from gaps in `pos`
   const { rows, blocks, maxPos } = useMemo(() => {
     const maxPos: Record<string, number> = {}
@@ -128,6 +130,25 @@ export default function SeatMap({ seats, now, gender, mineId, selectedIds, onSea
   }
   const centre = () => { const r = wrap.current!.getBoundingClientRect(); return { cx: r.left + r.width / 2, cy: r.top + r.height / 2 } }
 
+  // ----- focus: the seats never move, the view glides to the chosen block -----
+  const [anim, setAnim] = useState(false)
+  const applied = useRef('ALL')
+  useEffect(() => {
+    const f = focus || 'ALL'
+    if (applied.current === f || !size.w) return
+    applied.current = f
+    setAnim(true)
+    const bi = blocks.indexOf(f)
+    if (f === 'ALL' || bi < 0) { setView({ k: 1, x: 0, y: 0 }); return }
+    const total = 2 * LABEL + (blocks.length + 1) * AISLE + blocks.reduce((n, b) => n + secW(b), 0)
+    let left = LABEL + AISLE
+    for (let j = 0; j < bi; j++) left += secW(blocks[j]) + AISLE
+    const du = left + secW(f) / 2 - total / 2                  // block centre, measured from the hall centre
+    const want = Math.min(1.6, size.w / (secW(f) + 2 * LABEL))  // zoom so the block fills the width
+    const k = Math.min(MAXK, Math.max(kMinRef.current, minScale > 0 ? 1 : 0, want / fitRef.current))
+    setView(clamp(k, -du * fitRef.current * k, viewRef.current.y))
+  })
+
   // the "drag / pinch" tip goes away the moment the student touches the map (or after a few seconds)
   const [touched, setTouched] = useState(false)
   const touchedRef = useRef(false)
@@ -140,6 +161,7 @@ export default function SeatMap({ seats, now, gender, mineId, selectedIds, onSea
 
   const zoomBy = (f: number, px?: number, py?: number) => {
     touchOnce()
+    setAnim(false)
     const v = viewRef.current
     const k = Math.min(MAXK, Math.max(kMinRef.current, v.k * f))
     const { cx, cy } = centre()
@@ -163,6 +185,7 @@ export default function SeatMap({ seats, now, gender, mineId, selectedIds, onSea
     touchOnce()
   }
   const onDown = (e: RPointerEvent) => {
+    if (anim) setAnim(false)
     ptrs.current.set(e.pointerId, { x: e.clientX, y: e.clientY })
     if (ptrs.current.size === 1) { moved.current = false; g.current = { mode: 'pan', sx: e.clientX, sy: e.clientY, v0: viewRef.current, d0: 0, ux: 0, uy: 0 } }
     else if (ptrs.current.size === 2) startPinch()
@@ -211,14 +234,14 @@ export default function SeatMap({ seats, now, gender, mineId, selectedIds, onSea
         onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}
         onClickCapture={(e) => { if (moved.current) { e.stopPropagation(); e.preventDefault(); moved.current = false } }}
       >
-        <div ref={inner} className="absolute left-1/2 top-1/2 w-max" style={{ transform: `translate(-50%, -50%) translate(${view.x}px, ${view.y}px) scale(${s})`, transformOrigin: '50% 50%' }}>
+        <div ref={inner} className="absolute left-1/2 top-1/2 w-max" style={{ transform: `translate(-50%, -50%) translate(${view.x}px, ${view.y}px) scale(${s})`, transformOrigin: '50% 50%', transition: anim ? 'transform .45s cubic-bezier(.22,.8,.3,1)' : undefined }}>
           {/* block letters */}
           <div className="flex items-center mb-1.5" style={{ gap: AISLE }}>
             <span style={{ width: LABEL }} />
             {blocks.map((k) => (
               <button key={k} type="button" disabled={!onSection} style={{ width: secW(k) }}
                 onClick={() => onSection?.(seats.filter((x) => x.section === k))}
-                className="text-center text-sm font-black text-slate-400 enabled:hover:text-emerald-400">{k}</button>
+                className={`text-center text-sm font-black enabled:hover:text-emerald-400 transition-colors ${focus === k ? 'text-emerald-400' : 'text-slate-400'}`}>{k}</button>
             ))}
             <span style={{ width: LABEL }} />
           </div>
