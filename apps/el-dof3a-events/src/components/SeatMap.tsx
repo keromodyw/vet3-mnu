@@ -29,9 +29,9 @@ function Chair({ className = '' }: { className?: string }) {
   )
 }
 
-function Screen() {
+function Screen({ width }: { width: number }) {
   return (
-    <div className="mx-auto mb-4 sm:mb-6 w-[92%] max-w-xl select-none">
+    <div className="mx-auto mb-5 select-none" style={{ width }}>
       <svg viewBox="0 0 400 74" className="w-full" aria-hidden>
         <defs>
           <linearGradient id="eld-scr" x1="0" x2="1"><stop offset="0" stopColor="#475569" /><stop offset=".5" stopColor="#f8fafc" /><stop offset="1" stopColor="#475569" /></linearGradient>
@@ -90,13 +90,16 @@ export default function SeatMap({ seats, now, gender, mineId, selectedIds, onSea
   }, [seats])
   const secW = (k: string) => Math.max(SEAT, (maxPos[k] || 0) * (SEAT + GAP) - GAP)
   const mid = (blocks.length - 1) / 2
+  // the whole hall, in px: labels + aisles + blocks (the screen is sized from this, so it is part of the fixed hall)
+  const hallW = 2 * LABEL + (blocks.length + 1) * AISLE + blocks.reduce((n, b) => n + secW(b), 0)
+  const screenW = Math.round(Math.min(640, Math.max(220, hallW * 0.8)))
   // the outer blocks hug the middle aisle and grow outwards; the middle block grows both ways
   const justify = (i: number) => (blocks.length === 1 || i === mid ? 'justify-center' : i < mid ? 'justify-end' : 'justify-start')
 
   // ----- fit + zoom + pan -----
   const wrap = useRef<HTMLDivElement>(null)
   const inner = useRef<HTMLDivElement>(null)
-  const [size, setSize] = useState({ w: 320, nw: 320, nh: 240 })
+  const [size, setSize] = useState({ w: 320, nw: 320, nh: 240, ok: false })
   const [view, setView] = useState({ k: 1, x: 0, y: 0 })
   const viewRef = useRef(view)
   viewRef.current = view
@@ -104,7 +107,7 @@ export default function SeatMap({ seats, now, gender, mineId, selectedIds, onSea
   useLayoutEffect(() => {
     const measure = () => {
       if (!wrap.current || !inner.current) return
-      setSize({ w: wrap.current.clientWidth, nw: inner.current.offsetWidth || 1, nh: inner.current.offsetHeight || 1 })
+      setSize({ w: wrap.current.clientWidth, nw: inner.current.offsetWidth || 1, nh: inner.current.offsetHeight || 1, ok: true })
     }
     measure()
     const ro = new ResizeObserver(measure)
@@ -133,14 +136,17 @@ export default function SeatMap({ seats, now, gender, mineId, selectedIds, onSea
   // ----- focus: the seats never move, the view glides to the chosen block -----
   const [anim, setAnim] = useState(false)
   const applied = useRef('ALL')
+  const homed = useRef(false)
   useEffect(() => {
+    if (!size.ok) return
+    if (!homed.current) { homed.current = true; setView(clamp(1, 0, 1e9)); return }   // first view: the front rows, right under the screen
     const f = focus || 'ALL'
     if (applied.current === f || !size.w) return
     applied.current = f
     setAnim(true)
     const bi = blocks.indexOf(f)
-    if (f === 'ALL' || bi < 0) { setView({ k: 1, x: 0, y: 0 }); return }
-    const total = 2 * LABEL + (blocks.length + 1) * AISLE + blocks.reduce((n, b) => n + secW(b), 0)
+    if (f === 'ALL' || bi < 0) { setView(clamp(1, 0, 1e9)); return }
+    const total = hallW
     let left = LABEL + AISLE
     for (let j = 0; j < bi; j++) left += secW(blocks[j]) + AISLE
     const du = left + secW(f) / 2 - total / 2                  // block centre, measured from the hall centre
@@ -226,7 +232,6 @@ export default function SeatMap({ seats, now, gender, mineId, selectedIds, onSea
   const canPan = size.nw * s > size.w + 2 || size.nh * s > boxH + 2
   return (
     <div>
-      <Screen />
       <div
         ref={wrap} dir="ltr" role="group" aria-label="خريطة الكراسي"
         className="relative w-full overflow-hidden select-none"
@@ -235,6 +240,7 @@ export default function SeatMap({ seats, now, gender, mineId, selectedIds, onSea
         onClickCapture={(e) => { if (moved.current) { e.stopPropagation(); e.preventDefault(); moved.current = false } }}
       >
         <div ref={inner} className="absolute left-1/2 top-1/2 w-max" style={{ transform: `translate(-50%, -50%) translate(${view.x}px, ${view.y}px) scale(${s})`, transformOrigin: '50% 50%', transition: anim ? 'transform .45s cubic-bezier(.22,.8,.3,1)' : undefined }}>
+          <Screen width={screenW} />
           {/* block letters */}
           <div className="flex items-center mb-1.5" style={{ gap: AISLE }}>
             <span style={{ width: LABEL }} />
