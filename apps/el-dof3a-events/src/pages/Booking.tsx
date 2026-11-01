@@ -169,7 +169,7 @@ function Approved({ b }: { b: Booking }) {
 
   return (
     <div className="space-y-4">
-      {b.scanned_at && <div className="text-center"><Badge tone="red">التذكرة اتستخدمت — دخلت {formatCairo(b.scanned_at)}</Badge></div>}
+      {b.scanned_at && <div className="text-center"><Badge tone="red">التذكرة استخدمت {formatCairo(b.scanned_at)}</Badge></div>}
       <button className={`${btnPrimary} w-full`} disabled={busy} onClick={download}>{busy ? <Spinner /> : <Download className="w-5 h-5" />} تحميل التذكرة</button>
       {img ? <img src={img} alt="تذكرتك" className="w-full rounded-3xl shadow-xl shadow-black/20" /> : <div className="h-64 rounded-3xl bg-ink/5 animate-pulse" />}
     </div>
