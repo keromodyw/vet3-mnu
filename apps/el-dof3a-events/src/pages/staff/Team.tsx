@@ -61,7 +61,7 @@ export default function Team() {
   }
 
   return (
-    <StaffLayout title="الفريق" roles={['super_admin']} actions={<button className={btnPrimary} onClick={() => open({ mode: 'add' })}><Plus className="w-4 h-4" /> عضو جديد</button>}>
+    <StaffLayout title="الفريق" roles={['super_admin']} actions={<button className={btnPrimary} onClick={() => open({ mode: 'add' })}><Plus className="w-4 h-4" /> إضافة حد جديد</button>}>
       {loading ? <FullLoader /> : (
         <div className="space-y-2">
           {(data || []).map((m) => (
@@ -77,7 +77,7 @@ export default function Team() {
       )}
 
       {modal && (
-        <Modal title={modal.mode === 'add' ? 'عضو جديد' : 'تعديل العضو'} maxWidth="max-w-md" onClose={() => setModal(null)}
+        <Modal title={modal.mode === 'add' ? 'إضافة حد جديد' : 'تعديل'} maxWidth="max-w-md" onClose={() => setModal(null)}
           footer={<button className={`${btnPrimary} w-full`} disabled={busy} onClick={save}>{busy ? <Spinner /> : 'حفظ'}</button>}>
           <div className="light-modal space-y-3 text-ink">
             {modal.mode === 'add' && <input className={lightInputCls} dir="ltr" type="tel" inputMode="tel" placeholder="رقم التليفون (01xxxxxxxxx)" value={f.username} onChange={(e) => setF({ ...f, username: e.target.value })} />}
@@ -85,7 +85,7 @@ export default function Team() {
             <select className={lightInputCls} value={f.role} onChange={(e) => setF({ ...f, role: e.target.value as Role })}>
               {(Object.keys(ROLE_AR) as Role[]).map((r) => <option key={r} value={r}>{ROLE_AR[r]} — {ROLE_HELP[r]}</option>)}
             </select>
-            <input className={lightInputCls} dir="ltr" type="password" autoComplete="new-password" placeholder={modal.mode === 'add' ? 'كلمة المرور' : 'كلمة مرور جديدة (اختياري)'} value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} />
+            <input className={lightInputCls} dir="ltr" type="password" autoComplete="new-password" placeholder={modal.mode === 'add' ? 'الباسورد' : 'باسورد جديد (اختياري)'} value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} />
           </div>
         </Modal>
       )}
