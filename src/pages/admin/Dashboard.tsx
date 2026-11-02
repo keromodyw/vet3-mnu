@@ -92,7 +92,7 @@ export default function AdminDashboard() {
   ]
 
   return (
-    <AdminLayout title={`أهلاً${userName ? ' يا ' + userName : ''} 👋`} live={connected}>
+    <AdminLayout title={`أهلاً${userName ? ' يا ' + userName : ''}`} live={connected}>
       {setupError && (
         <div className="mb-6 p-4 rounded-2xl bg-amber-50 border border-amber-200 text-amber-900 text-sm leading-relaxed">
           <b>العدّادات محتاجة تجهيز مرة واحدة:</b> افتح Supabase ← SQL Editor وشغّل ملف <code className="px-1 bg-amber-100 rounded">admin_upgrade.sql</code>، وبعدها الأرقام هتشتغل لحظيًا.
