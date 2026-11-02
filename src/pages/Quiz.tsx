@@ -273,7 +273,7 @@ export default function Quiz() {
           </div>
           <div className="p-6 space-y-3">
             <p className="text-sm text-slate-500 text-center mb-1">اختار طريقة الحل</p>
-            {modeCard('instant', 'إجابات مباشرة', 'تعرف صح ولا غلط وتشوف الشرح فور ما تختار إجابة', 'للمذاكرة')}
+            {modeCard('instant', 'إجابات مباشرة', 'تعرف صح ولا غلط وتشوف الشرح سؤال بسؤال', 'للمذاكرة')}
             {modeCard('exam', 'نظام الامتحان', 'تحل براحتك وتقدر تغيّر إجاباتك، والنتيجة والشرح في الآخر', 'زي الامتحان')}
             <button onClick={() => navigate('/')} className="w-full py-2 text-slate-500 hover:text-slate-900 text-sm">
               العودة للرئيسية
@@ -454,7 +454,7 @@ export default function Quiz() {
                   return (
                     <div className="mt-4 space-y-3">
                       <div className={`p-4 rounded-2xl border-2 text-center ${r.isCorrect ? 'border-emerald-500 bg-emerald-50' : 'border-red-400 bg-red-50'}`}>
-                        <div className={`font-bold text-lg ${r.isCorrect ? 'text-emerald-700' : 'text-red-600'}`}>{r.isCorrect ? 'إجابة صحيحة!' : 'إجابة غير صحيحة'}</div>
+                        <div className={`font-bold text-lg ${r.isCorrect ? 'text-emerald-700' : 'text-red-600'}`}>{r.isCorrect ? 'إجابة صح!' : 'إجابة غلط'}</div>
                         <div className="text-2xl font-extrabold text-slate-800 my-1">{pct}% تشابه</div>
                         <div className="h-2 rounded-full bg-white/80 overflow-hidden my-2">
                           <div className={`h-full rounded-full ${r.isCorrect ? 'bg-emerald-500' : 'bg-red-400'}`} style={{ width: `${pct}%` }} />
