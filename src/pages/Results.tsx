@@ -40,11 +40,11 @@ export default function Results() {
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 max-w-2xl mx-auto mb-4">
             <div className="p-4 rounded-xl bg-emerald-50">
               <div className="text-2xl font-bold text-emerald-700">{result.correctAnswers}</div>
-              <div className="text-sm text-emerald-600">صحيح</div>
+              <div className="text-sm text-emerald-600">صح</div>
             </div>
             <div className="p-4 rounded-xl bg-red-50">
               <div className="text-2xl font-bold text-red-700">{result.wrongAnswers}</div>
-              <div className="text-sm text-red-600">خطأ</div>
+              <div className="text-sm text-red-600">غلط</div>
             </div>
             <div className="p-4 rounded-xl bg-slate-50">
               <div className="text-2xl font-bold text-slate-700">{result.totalQuestions}</div>
@@ -112,7 +112,7 @@ export default function Results() {
                         <span className={`text-xs px-2 py-0.5 rounded-full ${
                           answer?.isCorrect ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'
                         }`}>
-                          {answer?.isCorrect ? 'صحيح' : 'خطأ'}
+                          {answer?.isCorrect ? 'صح' : 'غلط'}
                         </span>
                       </div>
                       <p dir="auto" className="text-slate-900 mb-4 text-start whitespace-pre-line">{q.question_text}</p>
