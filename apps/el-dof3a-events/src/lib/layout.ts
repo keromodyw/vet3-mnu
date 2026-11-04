@@ -14,6 +14,8 @@ export interface LayoutBlock {
   counts?: number[]
   /** degrees the block is turned toward the screen: + = clockwise, − = counter-clockwise (side blocks) */
   tilt?: number
+  /** shorter rows sit in the middle of the block instead of hugging one side */
+  center?: boolean
 }
 
 export interface LayoutSpec {
@@ -73,6 +75,7 @@ export function sanitizeSpec(raw: unknown): LayoutSpec {
     }
     const tilt = clampInt(x.tilt, -30, 30, 0)
     if (tilt) out.tilt = tilt
+    if (x.center) out.center = true
     if (Array.isArray(x.counts)) out.counts = x.counts.map((c) => clampInt(c, 0, MAX_BLOCK_SEATS, 0))
     return out
   })
