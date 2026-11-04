@@ -208,7 +208,7 @@ export default function Seats() {
             onSeat={onSeat} onRow={toggleGroup} onSection={toggleGroup} />
         )}
       </HallPanel>
-      <p className="text-xs text-muted mt-2 leading-relaxed">اسم الكرسي = البلوك + الصف + رقمه جوه الصف (مثال A1-2). لما تمسح كرسي من النص الكراسي اللي جنبه بتتقفل عليه من غير فراغ. لو فيه حجوزات شغالة الأرقام القديمة مبتتغيرش (عشان التذاكر اللي اتصدرت) — استخدم «إعادة الترقيم» لو عايز ترتيب كامل.</p>
+      <p className="text-xs text-muted mt-2 leading-relaxed">EL DOF3A EVENTS ... BY: Kero Mody!</p>
     </StaffLayout>
   )
 }
