@@ -12,7 +12,7 @@ export const seatView = (s: Seat, now: number): View =>
   : s.state === 'held' && s.held_until && new Date(s.held_until).getTime() >= now ? 'held'
   : 'free'
 
-const SEAT = 36, GAP = 4, AISLE = 28, LABEL = 24, MAXK = 5
+const LETTER = 20, SEAT = 36, GAP = 4, AISLE = 28, LABEL = 24, MAXK = 5
 
 /** a real cinema chair: backrest, cushion and two armrests */
 function Chair({ className = '' }: { className?: string }) {
@@ -127,7 +127,7 @@ export default function SeatMap({ seats, now, gender, mineId, selectedIds, onSea
   const hallW = 2 * LABEL + (blocks.length + 1) * AISLE + blocks.reduce((n, b) => n + secW(b), 0)
   const screenW = Math.round(Math.min(640, Math.max(220, hallW * 0.8)))
   // a turned block swings outwards/downwards: leave room so nothing is cut off
-  const colH = rows.length * (SEAT + 6)
+  const colH = LETTER + rows.length * (SEAT + 6)
   const swing = (k: string) => Math.abs(tilts[k] || 0) * Math.PI / 180
   const padX = Math.ceil(Math.max(0, ...blocks.map((k) => Math.sin(swing(k)) * colH)))
   const padBottom = Math.ceil(Math.max(0, ...blocks.map((k) => Math.sin(swing(k)) * secW(k))))
@@ -266,6 +266,21 @@ export default function SeatMap({ seats, now, gender, mineId, selectedIds, onSea
     return () => el.removeEventListener('wheel', h)
   })
 
+  const leftLabels = (
+<div className="flex flex-col gap-1.5" style={{ width: LABEL }}>
+              <span style={{ height: LETTER }} aria-hidden />
+              {rows.map((r) => {
+                const all = blocks.flatMap((k) => r.by[k] || [])
+                return <button key={r.no} type="button" disabled={!onRow} onClick={() => onRow?.(all)} style={{ height: SEAT }} className="text-center text-xs font-bold text-slate-500 enabled:hover:text-emerald-400">{r.no}</button>
+              })}
+            </div>
+  )
+  const rightLabels = (
+<div className="flex flex-col gap-1.5" style={{ width: LABEL }}>
+              <span style={{ height: LETTER }} aria-hidden />
+              {rows.map((r) => <span key={r.no} style={{ height: SEAT, lineHeight: `${SEAT}px` }} className="text-center text-xs font-bold text-slate-500">{r.no}</span>)}
+            </div>
+  )
   const s = fit * view.k
   const canPan = size.nw * s > size.w + 2 || size.nh * s > boxH + 2
   return (
@@ -281,28 +296,17 @@ export default function SeatMap({ seats, now, gender, mineId, selectedIds, onSea
           <Screen width={screenW} />
           {/* block letters + chairs, one column per block so a side block can be turned toward the screen as a whole */}
           <div style={{ paddingInline: padX, paddingBottom: padBottom }}>
-          <div className="flex items-center mb-1.5" style={{ gap: AISLE }}>
-            <span style={{ width: LABEL }} />
-            {blocks.map((k) => (
-              <button key={k} type="button" disabled={!onSection} style={{ width: secW(k) }}
-                onClick={() => onSection?.(seats.filter((x) => x.section === k))}
-                className={`text-center text-sm font-black enabled:hover:text-emerald-400 transition-colors ${focus === k ? 'text-emerald-400' : 'text-slate-400'}`}>{k}</button>
-            ))}
-            <span style={{ width: LABEL }} />
-          </div>
-
           <div className="flex items-start" style={{ gap: AISLE }}>
-            <div className="flex flex-col gap-1.5" style={{ width: LABEL }}>
-              {rows.map((r) => {
-                const all = blocks.flatMap((k) => r.by[k] || [])
-                return <button key={r.no} type="button" disabled={!onRow} onClick={() => onRow?.(all)} style={{ height: SEAT }} className="text-center text-xs font-bold text-slate-500 enabled:hover:text-emerald-400">{r.no}</button>
-              })}
-            </div>
             {blocks.map((k, bi) => {
               const t = tilts[k] || 0
               return (
-                <div key={k} className="flex flex-col gap-1.5"
-                  style={{ width: secW(k), transform: t ? `rotate(${t}deg)` : undefined, transformOrigin: bi < mid ? 'top right' : bi > mid ? 'top left' : 'top center' }}>
+                // the outer row numbers travel with the first / last block, so they stay next to their rows when it turns
+                <div key={k} className="flex items-start" style={{ gap: AISLE, transform: t ? `rotate(${t}deg)` : undefined, transformOrigin: bi < mid ? 'top right' : bi > mid ? 'top left' : 'top center' }}>
+                  {bi === 0 && leftLabels}
+                  <div className="flex flex-col gap-1.5" style={{ width: secW(k) }}>
+                  <button type="button" disabled={!onSection} style={{ height: LETTER }}
+                    onClick={() => onSection?.(seats.filter((x) => x.section === k))}
+                    className={`text-center text-sm font-black enabled:hover:text-emerald-400 transition-colors ${focus === k ? 'text-emerald-400' : 'text-slate-400'}`}>{k}</button>
                   {rows.map((r) => {
                     const list = r.by[k] || []
                     return (
@@ -344,12 +348,11 @@ export default function SeatMap({ seats, now, gender, mineId, selectedIds, onSea
                       </div>
                     )
                   })}
+                  </div>
+                  {bi === blocks.length - 1 && rightLabels}
                 </div>
               )
             })}
-            <div className="flex flex-col gap-1.5" style={{ width: LABEL }}>
-              {rows.map((r) => <span key={r.no} style={{ height: SEAT, lineHeight: `${SEAT}px` }} className="text-center text-xs font-bold text-slate-500">{r.no}</span>)}
-            </div>
           </div>
           </div>
           {/* breathing room after the last row, so it can always be dragged up and tapped */}
