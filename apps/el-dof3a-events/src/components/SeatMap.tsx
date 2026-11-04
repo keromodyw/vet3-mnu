@@ -62,8 +62,12 @@ function useBlockLook(eventId?: string, rev?: string): BlockLook {
       try {
         const { data } = await supabase.from('events').select('layout_spec').eq('id', eventId).maybeSingle()
         const spec = (data?.layout_spec ?? null) as LayoutSpec | null
-        const m: Record<string, number> = {}
-        for (const b of spec?.blocks ?? []) if (b.tilt) m[String(b.key).toUpperCase()] = Number(b.tilt) || 0
+        const m: BlockLook = { tilt: {}, center: {} }
+        for (const b of spec?.blocks ?? []) {
+          const k = String(b.key).toUpperCase()
+          if (b.tilt) m.tilt[k] = Number(b.tilt) || 0
+          if (b.center) m.center[k] = true
+        }
         lookCache.set(key, m)
         if (live) setT(m)
       } catch { /* no tilt */ }
