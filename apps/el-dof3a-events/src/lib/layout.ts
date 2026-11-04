@@ -10,6 +10,10 @@ export interface LayoutBlock {
   aisleEvery: number
   /** aisle width, in seat widths */
   aisleWidth: number
+  /** exact chairs for every row (length = rows). When present it wins over seats/grow */
+  counts?: number[]
+  /** degrees the block is turned toward the screen: + = clockwise, − = counter-clockwise (side blocks) */
+  tilt?: number
 }
 
 export interface LayoutSpec {
@@ -60,16 +64,22 @@ export function sanitizeSpec(raw: unknown): LayoutSpec {
     let key = blockKey(x.key, String.fromCharCode(65 + (i % 26)))
     if (used.has(key)) key = freeKey(used)
     used.add(key)
-    return {
+    const out: LayoutBlock = {
       key,
       seats: clampInt(x.seats, 0, MAX_BLOCK_SEATS, 0),
       grow: clampInt(x.grow, -5, 5, 0),
       aisleEvery: clampInt(x.aisleEvery, 0, MAX_BLOCK_SEATS, 0),
       aisleWidth: clampInt(x.aisleWidth, 0, 4, 1),
     }
+    const tilt = clampInt(x.tilt, -30, 30, 0)
+    if (tilt) out.tilt = tilt
+    if (Array.isArray(x.counts)) out.counts = x.counts.map((c) => clampInt(c, 0, MAX_BLOCK_SEATS, 0))
+    return out
   })
+  const rows = clampInt(r.rows, 1, MAX_ROWS, DEFAULT_SPEC.rows)
+  for (const b of blocks) if (b.counts) { b.counts = Array.from({ length: rows }, (_, i) => b.counts![i] ?? 0); b.seats = b.counts[0] }   // always exactly one count per row
   return {
-    rows: clampInt(r.rows, 1, MAX_ROWS, DEFAULT_SPEC.rows),
+    rows,
     dir: r.dir === 'ltr' ? 'ltr' : 'rtl',
     blocks: blocks.length ? blocks : DEFAULT_SPEC.blocks.map((b) => ({ ...b })),
   }
@@ -83,7 +93,7 @@ export const nextBlockKey = (blocks: LayoutBlock[]) => {
 /** exact number of chairs this block will produce */
 export function blockSeats(b: LayoutBlock, rows: number): number {
   let n = 0
-  for (let r = 0; r < rows; r++) n += Math.max(0, b.seats + r * b.grow)
+  for (let r = 0; r < rows; r++) n += Math.max(0, b.counts ? (b.counts[r] ?? 0) : b.seats + r * b.grow)
   return n
 }
 
