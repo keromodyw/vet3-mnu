@@ -1,7 +1,8 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent as RMouseEvent, type PointerEvent as RPointerEvent, type ReactNode } from 'react'
 import { Lock, Maximize, Move, ZoomIn, ZoomOut } from 'lucide-react'
 import type { Gender, Seat } from '../lib/api'
-import { sectionKeys } from '../lib/layout'
+import { sectionKeys, type LayoutSpec } from '../lib/layout'
+import { supabase } from '../lib/supabase'
 
 type View = 'free' | 'held' | 'taken' | 'blocked'
 export type Mark = 'pending' | 'approved' | 'entered'
@@ -43,6 +44,31 @@ function Screen({ width }: { width: number }) {
       <div className="text-center text-[10px] tracking-[.45em] text-slate-500 -mt-1">SCREEN · الشاشة</div>
     </div>
   )
+}
+
+const tiltCache = new Map<string, Record<string, number>>()
+/** block → degrees, read once per event from the design that built the hall (no tilt when there is none) */
+function useBlockTilts(eventId?: string, rev?: string): Record<string, number> {
+  const key = `${eventId}:${rev}`            // a re-applied design makes new chairs → new rev → fresh read
+  const [t, setT] = useState<Record<string, number>>(() => tiltCache.get(key) || {})
+  useEffect(() => {
+    if (!eventId) return
+    const hit = tiltCache.get(key)
+    if (hit) { setT(hit); return }
+    let live = true
+    void (async () => {
+      try {
+        const { data } = await supabase.from('events').select('layout_spec').eq('id', eventId).maybeSingle()
+        const spec = (data?.layout_spec ?? null) as LayoutSpec | null
+        const m: Record<string, number> = {}
+        for (const b of spec?.blocks ?? []) if (b.tilt) m[String(b.key).toUpperCase()] = Number(b.tilt) || 0
+        tiltCache.set(key, m)
+        if (live) setT(m)
+      } catch { /* no tilt */ }
+    })()
+    return () => { live = false }
+  }, [key])
+  return t
 }
 
 const MARK_CLS: Record<Mark, string> = { pending: 'text-amber-500', approved: 'text-violet-500', entered: 'text-sky-400' }
@@ -88,11 +114,17 @@ export default function SeatMap({ seats, now, gender, mineId, selectedIds, onSea
     })
     return { rows, blocks, maxPos }
   }, [seats])
+  const tilts = useBlockTilts(seats[0]?.event_id, seats[0]?.id)
   const secW = (k: string) => Math.max(SEAT, (maxPos[k] || 0) * (SEAT + GAP) - GAP)
   const mid = (blocks.length - 1) / 2
   // the whole hall, in px: labels + aisles + blocks (the screen is sized from this, so it is part of the fixed hall)
   const hallW = 2 * LABEL + (blocks.length + 1) * AISLE + blocks.reduce((n, b) => n + secW(b), 0)
   const screenW = Math.round(Math.min(640, Math.max(220, hallW * 0.8)))
+  // a turned block swings outwards/downwards: leave room so nothing is cut off
+  const colH = rows.length * (SEAT + 6)
+  const swing = (k: string) => Math.abs(tilts[k] || 0) * Math.PI / 180
+  const padX = Math.ceil(Math.max(0, ...blocks.map((k) => Math.sin(swing(k)) * colH)))
+  const padBottom = Math.ceil(Math.max(0, ...blocks.map((k) => Math.sin(swing(k)) * secW(k))))
   // the outer blocks hug the middle aisle and grow outwards; the middle block grows both ways
   const justify = (i: number) => (blocks.length === 1 || i === mid ? 'justify-center' : i < mid ? 'justify-end' : 'justify-start')
 
@@ -241,7 +273,8 @@ export default function SeatMap({ seats, now, gender, mineId, selectedIds, onSea
       >
         <div ref={inner} className="absolute left-1/2 top-1/2 w-max" style={{ transform: `translate(-50%, -50%) translate(${view.x}px, ${view.y}px) scale(${s})`, transformOrigin: '50% 50%', transition: anim ? 'transform .45s cubic-bezier(.22,.8,.3,1)' : undefined }}>
           <Screen width={screenW} />
-          {/* block letters */}
+          {/* block letters + chairs, one column per block so a side block can be turned toward the screen as a whole */}
+          <div style={{ paddingInline: padX, paddingBottom: padBottom }}>
           <div className="flex items-center mb-1.5" style={{ gap: AISLE }}>
             <span style={{ width: LABEL }} />
             {blocks.map((k) => (
@@ -252,16 +285,22 @@ export default function SeatMap({ seats, now, gender, mineId, selectedIds, onSea
             <span style={{ width: LABEL }} />
           </div>
 
-          <div className="space-y-1.5">
-            {rows.map((r) => {
-              const all = blocks.flatMap((k) => r.by[k] || [])
+          <div className="flex items-start" style={{ gap: AISLE }}>
+            <div className="flex flex-col gap-1.5" style={{ width: LABEL }}>
+              {rows.map((r) => {
+                const all = blocks.flatMap((k) => r.by[k] || [])
+                return <button key={r.no} type="button" disabled={!onRow} onClick={() => onRow?.(all)} style={{ height: SEAT }} className="text-center text-xs font-bold text-slate-500 enabled:hover:text-emerald-400">{r.no}</button>
+              })}
+            </div>
+            {blocks.map((k, bi) => {
+              const t = tilts[k] || 0
               return (
-                <div key={r.no} className="flex items-center" style={{ gap: AISLE }}>
-                  <button type="button" disabled={!onRow} onClick={() => onRow?.(all)} style={{ width: LABEL }} className="text-center text-xs font-bold text-slate-500 enabled:hover:text-emerald-400">{r.no}</button>
-                  {blocks.map((k, bi) => {
+                <div key={k} className="flex flex-col gap-1.5"
+                  style={{ width: secW(k), transform: t ? `rotate(${t}deg)` : undefined, transformOrigin: bi < mid ? 'top right' : bi > mid ? 'top left' : 'top center' }}>
+                  {rows.map((r) => {
                     const list = r.by[k] || []
                     return (
-                      <div key={k} className={`flex ${justify(bi)}`} style={{ width: secW(k) }}>
+                      <div key={r.no} className={`flex items-center ${justify(bi)}`} style={{ height: SEAT }}>
                         {list.map((st, i) => {
                           const v = seatView(st, now)
                           const booked = v === 'held' || v === 'taken'
@@ -299,10 +338,13 @@ export default function SeatMap({ seats, now, gender, mineId, selectedIds, onSea
                       </div>
                     )
                   })}
-                  <span style={{ width: LABEL }} className="text-center text-xs font-bold text-slate-500">{r.no}</span>
                 </div>
               )
             })}
+            <div className="flex flex-col gap-1.5" style={{ width: LABEL }}>
+              {rows.map((r) => <span key={r.no} style={{ height: SEAT, lineHeight: `${SEAT}px` }} className="text-center text-xs font-bold text-slate-500">{r.no}</span>)}
+            </div>
+          </div>
           </div>
           {/* breathing room after the last row, so it can always be dragged up and tapped */}
           <div style={{ height: 56 }} aria-hidden />

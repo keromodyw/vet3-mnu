@@ -138,6 +138,15 @@ export default function LayoutBuilder({ eventId, event, hasSeats, onApplied }: {
             <Num label="+ كل صف" value={b.grow} min={-5} max={5} onChange={(n) => patch(i, { grow: n })} />
             <Num label="ممر كل" value={b.aisleEvery} min={0} max={MAX_BLOCK_SEATS} onChange={(n) => patch(i, { aisleEvery: n })} />
             <Num label="عرض الممر" value={b.aisleWidth} min={0} max={4} onChange={(n) => patch(i, { aisleWidth: n })} w="w-16" />
+            <Num label="ميل ° ناحية الشاشة" value={b.tilt ?? 0} min={-30} max={30} onChange={(n) => patch(i, { tilt: n || undefined })} w="w-24" />
+            <label className="text-xs text-muted min-w-[12rem] flex-1">كراسي كل صف (اختياري، بفواصل)
+              <input className={`${inputCls} mt-1 !py-2 tabular-nums`} dir="ltr" placeholder="مثال: 3,3,4,4,5"
+                value={b.counts ? b.counts.join(',') : ''}
+                onChange={(e) => {
+                  const list = e.target.value.split(/[^0-9]+/).filter(Boolean).map((x) => Math.min(MAX_BLOCK_SEATS, Number(x)))
+                  patch(i, list.length ? { counts: Array.from({ length: spec.rows }, (_, r) => list[r] ?? 0), seats: list[0] } : { counts: undefined })
+                }} />
+            </label>
             <div className="flex gap-1 ms-auto">
               <button type="button" className={btnGhost} disabled={i === 0} onClick={() => move(i, -1)} title="حرّك للشمال"><ArrowLeft className="w-4 h-4" /></button>
               <button type="button" className={btnGhost} disabled={i === spec.blocks.length - 1} onClick={() => move(i, 1)} title="حرّك لليمين"><ArrowRight className="w-4 h-4" /></button>
