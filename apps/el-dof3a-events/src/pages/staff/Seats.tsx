@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { ArrowRight, ArrowLeftToLine, ArrowRightToLine, Ban, CheckCheck, Keyboard, ListOrdered, Mars, Trash2, Unlock, Venus } from 'lucide-react'
+import { ArrowRight, ArrowLeftToLine, ArrowRightToLine, Ban, CheckCheck, FileText, Keyboard, ListOrdered, Mars, Trash2, Unlock, Venus } from 'lucide-react'
 import LayoutBuilder from '../../components/LayoutBuilder'
 import SeatMap, { HallPanel, seatView } from '../../components/SeatMap'
 import StaffLayout from '../../components/StaffLayout'
@@ -8,6 +8,7 @@ import { confirmDialog, toast } from '../../components/feedback'
 import { btnGhost, btnPrimary, card, FullLoader, inputCls, Spinner } from '../../components/ui'
 import { errText, fetchSeats, rpc, type EventRow, type Restriction, type Seat } from '../../lib/api'
 import { useLive } from '../../lib/live'
+import { printSeatMapPdf } from '../../lib/mapPdf'
 import { supabase } from '../../lib/supabase'
 import { useNow } from '../../lib/time'
 
@@ -112,8 +113,12 @@ export default function Seats() {
     })
   }
   const renumber = async () => {
-    if (!(await confirmDialog({ title: 'إعادة ترقيم الكراسي؟', message: 'الأرقام هتترتب من جديد (A و B و C صف ورا صف). لو فيه تذاكر اتصدرت، الطلاب لازم ينزلوها تاني.', confirmText: 'إعادة الترقيم', danger: true }))) return
+    if (!(await confirmDialog({ title: 'إعادة ترقيم الكراسي؟', message: 'الأرقام هتترتب من جديد (A1-1 و A1-2 … وبتبدأ من 1 في كل صف). لو فيه تذاكر اتصدرت، الطلاب لازم ينزلوها تاني.', confirmText: 'إعادة الترقيم', danger: true }))) return
     void run(async () => { await rpc('md_renumber_event', { p_event: eventId }); toast('اتعاد الترقيم ✅'); await seatsLive.reload() })
+  }
+  const exportMap = (showStatus: boolean) => {
+    if (!seats.length) return toast('مفيش خريطة للتصدير', 'info')
+    if (!printSeatMapPdf({ title: ev.data?.title || 'خريطة القاعة', seats, now, showStatus, dir: ev.data?.numbering_dir || 'rtl' })) toast('اسمح بالنوافذ المنبثقة', 'error')
   }
   const saveCap = async () => {
     const v = (cap ?? '').trim()
@@ -171,6 +176,8 @@ export default function Seats() {
           </div>
         </div>
         <div className="flex-1" />
+        {seats.length > 0 && <button className={btnGhost} onClick={() => exportMap(true)} title="خريطة بالألوان + طريقة قراءة الكراسي"><FileText className="w-4 h-4 text-red-600 dark:text-red-300" /> خريطة PDF</button>}
+        {seats.length > 0 && <button className={btnGhost} onClick={() => exportMap(false)} title="من غير ألوان الحجز"><FileText className="w-4 h-4" /> خريطة PDF فاضية</button>}
         {seats.length > 0 && <button className={btnGhost} disabled={busy} onClick={renumber}><ListOrdered className="w-4 h-4" /> إعادة الترقيم</button>}
       </div>
 
@@ -200,7 +207,7 @@ export default function Seats() {
             onSeat={onSeat} onRow={toggleGroup} onSection={toggleGroup} />
         )}
       </HallPanel>
-      <p className="text-xs text-muted mt-2 leading-relaxed">لو فيه حجوزات شغالة، الكراسي الجديدة بتاخد أرقام جديدة من غير ما الأرقام القديمة تتغير (عشان التذاكر اللي اتصدرت). استخدم «إعادة الترقيم» لو عايز ترتيب كامل.</p>
+      <p className="text-xs text-muted mt-2 leading-relaxed">اسم الكرسي = البلوك + الصف + رقمه جوه الصف (مثال A1-2). لما تمسح كرسي من النص الكراسي اللي جنبه بتتقفل عليه من غير فراغ. لو فيه حجوزات شغالة الأرقام القديمة مبتتغيرش (عشان التذاكر اللي اتصدرت) — استخدم «إعادة الترقيم» لو عايز ترتيب كامل.</p>
     </StaffLayout>
   )
 }

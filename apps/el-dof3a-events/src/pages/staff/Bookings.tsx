@@ -1,11 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { Check, FileSpreadsheet, FileText, Image as ImageIcon, RotateCcw, Search, Trash2, UserPlus, X } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState, type MouseEvent } from 'react'
+import { Check, FileSpreadsheet, FileText, Image as ImageIcon, Plus, RotateCcw, Search, Trash2, UserPlus, X } from 'lucide-react'
 import EventPicker, { rememberedEvent } from '../../components/EventPicker'
 import Modal from '../../components/Modal'
 import StaffLayout from '../../components/StaffLayout'
 import { confirmDialog, toast } from '../../components/feedback'
 import { Badge, btnGhost, btnPrimary, card, FullLoader, inputCls, lightInputCls, Spinner } from '../../components/ui'
-import { BATCH_AR, batchOf, errText, fetchSeats, rpc, type BookingStatus } from '../../lib/api'
+import { BATCH_AR, batchOf, errText, fetchSeats, rpc, type BookingStatus, type Seat } from '../../lib/api'
 import { purgeProofFiles } from '../../lib/cleanup'
 import { useStaff } from '../../lib/staff'
 import SeatMap, { HallPanel, seatView } from '../../components/SeatMap'
@@ -196,15 +196,27 @@ function Body({ eventId }: { eventId: string }) {
 
 interface Found { national_id: string; name: string; academic_no: string | null }
 
-/** super admin: book someone directly — counts as reviewed + paid + approved; blocked chairs can be picked too */
+const MAX_BULK = 300
+const SHORTCUTS = 'كليك = اختيار كرسي · Shift+كليك = من آخر كرسي لحد ده · Ctrl+كليك = إضافة/شيل · كليك على رقم الصف أو حرف البلوك = الصف/البلوك كله'
+
+/** typed Arabic letters match every spelling of them (ا أ إ آ · ى ي · ة ه), so the search finds the name however it was typed */
+const fuzzyArabic = (t: string) => t.replace(/[اأإآ]/g, '_').replace(/[يى]/g, '_').replace(/[ةه]/g, '_')
+
+/** super admin: book someone directly — counts as reviewed + paid + approved; blocked chairs can be picked too.
+ *  One student + one chair, or MANY students + the same number of chairs (bulk) in one go. */
 function ManualBooking({ defaultEventId, onClose, onDone }: { defaultEventId: string; onClose: () => void; onDone: () => void }) {
   const now = useNow()
   const [eventId, setEventId] = useState(defaultEventId)
   const [q, setQ] = useState('')
   const [results, setResults] = useState<Found[]>([])
-  const [student, setStudent] = useState<Found | null>(null)
-  const [seat, setSeat] = useState<string | null>(null)
+  const [searching, setSearching] = useState(false)
+  const [students, setStudents] = useState<Found[]>([])
+  const [dupes, setDupes] = useState<Set<string>>(new Set())
+  const [paste, setPaste] = useState<string | null>(null)
+  const [sel, setSel] = useState<Set<string>>(new Set())
+  const anchor = useRef<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const input = useRef<HTMLInputElement>(null)
 
   const events = useLive(async () => {
     const { data, error } = await supabase.from('events').select('id,title,booking_mode').order('created_at', { ascending: false })
@@ -215,70 +227,206 @@ function ManualBooking({ defaultEventId, onClose, onDone }: { defaultEventId: st
   const seatsMode = ev?.booking_mode === 'seats'
 
   const seatsLive = useLive(async () => (seatsMode ? fetchSeats(eventId) : []), [{ table: 'seats', filter: `event_id=eq.${eventId}` }], 8000)
-  useEffect(() => { setSeat(null); void seatsLive.reload() }, [eventId, seatsMode])
+  useEffect(() => { setSel(new Set()); anchor.current = null; void seatsLive.reload() }, [eventId, seatsMode])
 
+  // ---------- fast search: only the column that makes sense, 120 ms debounce, cache, stale answers ignored ----------
+  const cache = useRef(new Map<string, Found[]>())
+  const seq = useRef(0)
   useEffect(() => {
+    const term = q.replace(/[,()%*\\]/g, ' ').trim()
+    if (term.length < 2) { seq.current++; setResults([]); setSearching(false); return }
+    const hit = cache.current.get(term)
+    if (hit) { setResults(hit); setSearching(false); return }
+    setSearching(true)
+    const my = ++seq.current
     const t = window.setTimeout(async () => {
-      const term = q.replace(/[,()%*]/g, ' ').trim()
-      if (term.length < 2) { setResults([]); return }
-      const { data } = await supabase.from('students').select('national_id,name,academic_no')
-        .or(`name.ilike.%${term}%,national_id.ilike.%${term}%,academic_no.ilike.%${term}%`).limit(8)
-      setResults((data || []) as Found[])
-    }, 250)
+      const digits = /^[0-9]+$/.test(term)
+      const base = supabase.from('students').select('national_id,name,academic_no').limit(10)
+      const { data } = await (digits ? base.or(`national_id.ilike.%${term}%,academic_no.ilike.%${term}%`) : base.ilike('name', `%${fuzzyArabic(term)}%`))
+      if (my !== seq.current) return                          // a newer search already started
+      const list = (data || []) as Found[]
+      if (cache.current.size > 200) cache.current.clear()
+      cache.current.set(term, list)
+      setResults(list); setSearching(false)
+    }, 120)
     return () => window.clearTimeout(t)
   }, [q])
 
+  const addStudent = (r: Found) => {
+    setStudents((cur) => {
+      if (cur.some((x) => x.national_id === r.national_id)) { toast('الطالب ده مضاف بالفعل', 'info'); return cur }
+      if (cur.length >= MAX_BULK) { toast(`أقصى عدد ${MAX_BULK} طالب في المرة`, 'info'); return cur }
+      return [...cur, r]
+    })
+    setQ(''); setResults([]); input.current?.focus()
+  }
+  const removeStudent = (nid: string) => setStudents((cur) => cur.filter((x) => x.national_id !== nid))
+
+  // paste many national / academic numbers at once
+  const importPaste = async () => {
+    const tokens = [...new Set((paste || '').split(/[\s,;،]+/).map((x) => x.trim()).filter(Boolean))]
+    const nids = tokens.filter((t) => /^[0-9]{14}$/.test(t)), acads = tokens.filter((t) => /^[0-9]{8}$/.test(t))
+    if (!nids.length && !acads.length) return toast('الصق أرقام قومية (14 رقم) أو أكاديمية (8 أرقام) — رقم في كل سطر', 'info')
+    const found: Found[] = []
+    for (let i = 0; i < nids.length; i += 100) {
+      const { data } = await supabase.from('students').select('national_id,name,academic_no').in('national_id', nids.slice(i, i + 100)); found.push(...((data || []) as Found[]))
+    }
+    for (let i = 0; i < acads.length; i += 100) {
+      const { data } = await supabase.from('students').select('national_id,name,academic_no').in('academic_no', acads.slice(i, i + 100)); found.push(...((data || []) as Found[]))
+    }
+    let added = 0
+    setStudents((cur) => {
+      const have = new Set(cur.map((x) => x.national_id)); const out = [...cur]
+      for (const f of found) if (!have.has(f.national_id) && out.length < MAX_BULK) { have.add(f.national_id); out.push(f); added++ }
+      return out
+    })
+    toast(`اتضاف ${added} طالب${tokens.length > added ? ` · ${tokens.length - added} مش موجود / مكرر` : ''}`, added ? 'success' : 'info')
+    setPaste(null)
+  }
+
+  // students who already hold a pending / approved booking can't be booked again
+  const nidsKey = students.map((x) => x.national_id).join(',')
+  useEffect(() => {
+    if (!students.length) { setDupes(new Set()); return }
+    let dead = false
+    void (async () => {
+      const { data } = await supabase.from('bookings').select('national_id').eq('event_id', eventId).in('status', ['pending', 'approved']).in('national_id', students.map((x) => x.national_id))
+      if (!dead) setDupes(new Set((data || []).map((r: { national_id: string }) => r.national_id)))
+    })()
+    return () => { dead = true }
+  }, [nidsKey, eventId])
+
+  // ---------- seats: click / shift / ctrl / whole row / whole block ----------
+  const allSeats = seatsLive.data || []
+  const avail = (s: Seat) => { const v = seatView(s, now); return v !== 'taken' && v !== 'held' }
+  const ordered = useMemo(() => allSeats.filter((s) => sel.has(s.id) && avail(s)), [allSeats, sel, now])      // reading order: row → block → chair
+  const onSeat = (s: Seat, e: MouseEvent) => {
+    if (!avail(s)) return toast('الكرسي ده محجوز', 'info')
+    const touch = (e.nativeEvent as PointerEvent).pointerType === 'touch'
+    const ctrl = e.ctrlKey || e.metaKey
+    const additive = ctrl || touch || students.length > 1
+    if (e.shiftKey && anchor.current) {
+      const a = allSeats.findIndex((x) => x.id === anchor.current), b = allSeats.findIndex((x) => x.id === s.id)
+      if (a >= 0 && b >= 0) {
+        const range = allSeats.slice(Math.min(a, b), Math.max(a, b) + 1).filter(avail).map((x) => x.id)
+        setSel((cur) => new Set([...(additive ? cur : []), ...range]))
+        return
+      }
+    }
+    anchor.current = s.id
+    setSel((cur) => {
+      const n = new Set(additive ? cur : [])
+      if (cur.has(s.id) && (additive || cur.size === 1)) n.delete(s.id); else n.add(s.id)
+      return n
+    })
+  }
+  const toggleGroup = (list: Seat[]) => setSel((cur) => {
+    const free = list.filter(avail)
+    const n = new Set(cur); const all = free.length > 0 && free.every((s) => n.has(s.id))
+    free.forEach((s) => (all ? n.delete(s.id) : n.add(s.id))); return n
+  })
+
+  // ---------- submit ----------
+  const need = students.length, have = ordered.length
+  const hasDupes = students.some((x) => dupes.has(x.national_id))
+  const match = !seatsMode || need === have
+  const canSubmit = !busy && need > 0 && match && !hasDupes
+  const seatOf = (i: number) => (seatsMode ? ordered[i] : undefined)
+
   const submit = async () => {
-    if (!student || (seatsMode && !seat)) return
+    if (!canSubmit) return
     setBusy(true)
     try {
-      await rpc('md_admin_book', { p_event: eventId, p_nid: student.national_id, p_seat: seatsMode ? seat : null })
-      feedbackOk(); toast('اتسجل الحجز ✅'); onDone()
+      if (students.length === 1) {
+        await rpc('md_admin_book', { p_event: eventId, p_nid: students[0].national_id, p_seat: seatsMode ? ordered[0].id : null })
+      } else {
+        await rpc<number>('md_admin_book_many', { p_event: eventId, p_pairs: students.map((st, i) => ({ nid: st.national_id, seat: seatsMode ? ordered[i].id : null })) })
+      }
+      feedbackOk(); toast(need > 1 ? `اتسجل ${need} حجز ✅` : 'اتسجل الحجز ✅'); onDone()
     } catch (e) { toast(errText(e), 'error'); void seatsLive.reload() } finally { setBusy(false) }
   }
 
-  const picked = (seatsLive.data || []).find((s) => s.id === seat)
   return (
-    <Modal title="حجز يدوي" maxWidth="max-w-3xl" full onClose={onClose}
-      footer={<div className="flex items-center gap-3">
-        <div className="flex-1 text-sm text-muted">{student ? <b className="text-ink">{student.name}</b> : 'اختار طالب'}{seatsMode ? (picked ? <> · كرسي <b className="text-ink">{picked.label}</b></> : ' · واختار كرسي') : ''}</div>
-        <button className={btnPrimary} disabled={busy || !student || (seatsMode && !seat)} onClick={submit}>{busy ? <Spinner /> : <Check className="w-5 h-5" />} تسجيل الحجز (مدفوع ومؤكد)</button>
+    <Modal title="حجز يدوي" maxWidth="max-w-5xl" full onClose={onClose}
+      footer={<div className="flex flex-wrap items-center gap-3">
+        <div className="flex-1 min-w-[12rem] text-sm text-muted">
+          طلاب <b className="text-ink">{need}</b>{seatsMode && <> · كراسي <b className={match ? 'text-ink' : 'text-red-600 dark:text-red-300'}>{have}</b></>}
+          {seatsMode && need > 0 && !match && <span className="text-red-600 dark:text-red-300"> · {have < need ? `ناقص ${need - have} كرسي` : `زيادة ${have - need} كرسي`}</span>}
+          {hasDupes && <span className="text-red-600 dark:text-red-300"> · فيه طلاب حاجزين بالفعل</span>}
+        </div>
+        <button className={btnPrimary} disabled={!canSubmit} onClick={submit}>{busy ? <Spinner /> : <Check className="w-5 h-5" />} {need > 1 ? `تسجيل ${need} حجز` : 'تسجيل الحجز'} (مدفوع ومؤكد)</button>
       </div>}>
       <div className="space-y-4">
         <label className="block"><span className="block text-sm font-semibold mb-1">الإيفينت</span>
-          <select className={lightInputCls} value={eventId} onChange={(e) => setEventId(e.target.value)}>
+          <select className={lightInputCls} value={eventId} onChange={(e) => { setEventId(e.target.value); setStudents([]) }}>
             {(events.data || []).map((e) => <option key={e.id} value={e.id}>{e.title}</option>)}
           </select></label>
 
         <div>
-          <span className="block text-sm font-semibold mb-1">الطالب</span>
-          {student ? (
-            <div className="flex items-center gap-3 p-3 rounded-2xl bg-emerald-500/10 border border-emerald-500/30">
-              <div className="flex-1"><div className="font-bold">{student.name}</div><div className="text-xs text-muted" dir="ltr" style={{ textAlign: 'right' }}>{student.national_id} · {student.academic_no || '—'}</div></div>
-              <button className="text-xs underline text-muted hover:text-ink" onClick={() => setStudent(null)}>تغيير</button>
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-sm font-semibold">الطلاب {need > 0 && <span className="text-muted font-normal">({need})</span>}</span>
+            <div className="flex items-center gap-3 text-xs">
+              <button className="underline text-muted hover:text-ink" onClick={() => setPaste(paste === null ? '' : null)}>لصق أرقام كتير</button>
+              {need > 0 && <button className="underline text-muted hover:text-ink" onClick={() => setStudents([])}>مسح الكل</button>}
             </div>
-          ) : (<>
-            <input className={lightInputCls} placeholder="ابحث بالاسم / الرقم القومي / الرقم الأكاديمي" value={q} onChange={(e) => setQ(e.target.value)} autoFocus />
-            {results.length > 0 && (
-              <div className="mt-2 rounded-2xl border border-line divide-y divide-line overflow-hidden">
-                {results.map((r) => (
-                  <button key={r.national_id} className="w-full text-right px-4 py-2.5 hover:bg-ink/5" onClick={() => { setStudent(r); setQ(''); setResults([]) }}>
-                    <div className="font-semibold">{r.name}</div><div className="text-xs text-muted" dir="ltr" style={{ textAlign: 'right' }}>{r.national_id} · {r.academic_no || '—'}</div>
+          </div>
+          <div className="relative">
+            <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted" />
+            <input ref={input} className={`${lightInputCls} pr-10`} placeholder="ابحث بالاسم / الرقم القومي / الرقم الأكاديمي — كليك أو Enter يضيف الطالب" value={q} autoFocus
+              onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && results[0]) { e.preventDefault(); addStudent(results[0]) } }} />
+            {searching && <Spinner className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4" />}
+          </div>
+          {results.length > 0 && (
+            <div className="mt-2 rounded-2xl border border-line divide-y divide-line overflow-hidden">
+              {results.map((r) => {
+                const added = students.some((x) => x.national_id === r.national_id)
+                return (
+                  <button key={r.national_id} disabled={added} className="w-full text-right px-4 py-2 hover:bg-ink/5 disabled:opacity-50 flex items-center gap-3" onClick={() => addStudent(r)}>
+                    <div className="flex-1 min-w-0"><div className="font-semibold truncate">{r.name}</div><div className="text-xs text-muted" dir="ltr" style={{ textAlign: 'right' }}>{r.national_id} · {r.academic_no || '—'}</div></div>
+                    {added ? <Check className="w-4 h-4 text-emerald-600" /> : <Plus className="w-4 h-4 text-muted" />}
                   </button>
-                ))}
-              </div>
-            )}
-          </>)}
+                )
+              })}
+            </div>
+          )}
+          {!searching && q.trim().length >= 2 && results.length === 0 && <div className="mt-2 text-xs text-muted">مفيش نتيجة</div>}
+          {paste !== null && (
+            <div className="mt-2 space-y-2">
+              <textarea className={lightInputCls} rows={4} dir="ltr" placeholder={'الصق رقم قومي (14 رقم) أو أكاديمي (8 أرقام) — رقم في كل سطر'} value={paste} onChange={(e) => setPaste(e.target.value)} />
+              <button className={btnGhost} onClick={importPaste}><Plus className="w-4 h-4" /> إضافة</button>
+            </div>
+          )}
+
+          {need > 0 && (
+            <div className="mt-3 max-h-56 overflow-y-auto rounded-2xl border border-line divide-y divide-line">
+              {students.map((st, i) => {
+                const seat = seatOf(i)
+                const dupe = dupes.has(st.national_id)
+                return (
+                  <div key={st.national_id} className={`flex items-center gap-3 px-3 py-2 ${dupe ? 'bg-red-500/10' : ''}`}>
+                    <span className="w-6 text-center text-xs text-muted tabular-nums">{i + 1}</span>
+                    <div className="flex-1 min-w-0"><div className="text-sm font-semibold truncate">{st.name}</div><div className="text-[11px] text-muted" dir="ltr" style={{ textAlign: 'right' }}>{st.national_id} · {st.academic_no || '—'}{dupe ? ' · محجوز بالفعل' : ''}</div></div>
+                    {seatsMode && <span className={`min-w-[3.5rem] text-center px-2 py-1 rounded-lg text-sm font-black ${seat ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300' : 'bg-ink/5 text-muted'}`} dir="ltr">{seat ? seat.label : '—'}</span>}
+                    <button className="p-1.5 rounded-lg text-muted hover:bg-ink/10 hover:text-ink" onClick={() => removeStudent(st.national_id)} aria-label="شيل"><X className="w-4 h-4" /></button>
+                  </div>
+                )
+              })}
+            </div>
+          )}
         </div>
 
         {seatsMode && (
           <div>
-            <span className="block text-sm font-semibold mb-1">الكرسي</span>
+            <div className="flex items-center justify-between mb-1 gap-2">
+              <span className="text-sm font-semibold">الكراسي {have > 0 && <span className="text-muted font-normal">({have})</span>}</span>
+              {sel.size > 0 && <button className="text-xs underline text-muted hover:text-ink" onClick={() => setSel(new Set())}>إلغاء الاختيار</button>}
+            </div>
+            <p className="text-[11px] text-muted mb-2 leading-relaxed">{SHORTCUTS}. الكراسي بتتوزع على الطلاب بالترتيب (من الأمام للخلف، ومن الشمال لليمين).</p>
             <HallPanel>
               {seatsLive.loading ? <FullLoader /> : (
-                <SeatMap admin seats={seatsLive.data || []} now={now} selectedIds={new Set(seat ? [seat] : [])} maxHeightRatio={0.55}
+                <SeatMap admin seats={allSeats} now={now} selectedIds={sel} maxHeightRatio={0.55}
                   minScale={typeof window !== 'undefined' && window.innerWidth < 640 ? 0.9 : 0}
-                  onSeat={(s) => { const v = seatView(s, now); if (v === 'taken' || v === 'held') return toast('الكرسي ده محجوز', 'info'); setSeat((c) => (c === s.id ? null : s.id)) }} />
+                  onSeat={onSeat} onRow={toggleGroup} onSection={toggleGroup} />
               )}
             </HallPanel>
           </div>
