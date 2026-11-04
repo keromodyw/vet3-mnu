@@ -5,13 +5,14 @@ import Modal from '../../components/Modal'
 import StaffLayout from '../../components/StaffLayout'
 import { confirmDialog, toast } from '../../components/feedback'
 import { Badge, btnGhost, btnPrimary, card, FullLoader, inputCls, lightInputCls, Spinner } from '../../components/ui'
-import { BATCH_AR, batchOf, errText, fetchSeats, rpc, type BookingStatus, type Seat } from '../../lib/api'
+import { BATCH_AR, batchOf, errText, rpc, type BookingStatus, type Seat } from '../../lib/api'
 import { purgeProofFiles } from '../../lib/cleanup'
 import { useStaff } from '../../lib/staff'
 import SeatMap, { HallPanel, seatView } from '../../components/SeatMap'
 import { useNow } from '../../lib/time'
 import { exportReservationsXlsx, printReservationsPdf, type ExportRow } from '../../lib/export'
 import { pageAll, useLive } from '../../lib/live'
+import { useLiveSeats } from '../../lib/liveSeats'
 import { feedbackOk, feedbackTick } from '../../lib/sound'
 import { supabase } from '../../lib/supabase'
 import { formatCairo } from '../../lib/time'
@@ -226,7 +227,7 @@ function ManualBooking({ defaultEventId, onClose, onDone }: { defaultEventId: st
   const ev = (events.data || []).find((e) => e.id === eventId)
   const seatsMode = ev?.booking_mode === 'seats'
 
-  const seatsLive = useLive(async () => (seatsMode ? fetchSeats(eventId) : []), [{ table: 'seats', filter: `event_id=eq.${eventId}` }], 8000)
+  const seatsLive = useLiveSeats(eventId, seatsMode)
   useEffect(() => { setSel(new Set()); anchor.current = null; void seatsLive.reload() }, [eventId, seatsMode])
 
   // ---------- fast search: only the column that makes sense, 120 ms debounce, cache, stale answers ignored ----------

@@ -6,8 +6,9 @@ import SeatMap, { HallPanel, seatView } from '../../components/SeatMap'
 import StaffLayout from '../../components/StaffLayout'
 import { confirmDialog, toast } from '../../components/feedback'
 import { btnGhost, btnPrimary, card, FullLoader, inputCls, Spinner } from '../../components/ui'
-import { errText, fetchSeats, rpc, type EventRow, type Restriction, type Seat } from '../../lib/api'
+import { errText, rpc, type EventRow, type Restriction, type Seat } from '../../lib/api'
 import { useLive } from '../../lib/live'
+import { useLiveSeats } from '../../lib/liveSeats'
 import { printSeatMapPdf } from '../../lib/mapPdf'
 import { supabase } from '../../lib/supabase'
 import { useNow } from '../../lib/time'
@@ -42,7 +43,7 @@ export default function Seats() {
     if (error) throw error
     return data as EventRow
   }, [{ table: 'events', filter: `id=eq.${eventId}` }], 30000)
-  const seatsLive = useLive(() => fetchSeats(eventId), [{ table: 'seats', filter: `event_id=eq.${eventId}` }], 8000)
+  const seatsLive = useLiveSeats(eventId)
   const seats = seatsLive.data || []
 
   const counts = useMemo(() => {
