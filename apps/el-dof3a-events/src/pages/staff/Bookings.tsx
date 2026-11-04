@@ -198,7 +198,7 @@ function Body({ eventId }: { eventId: string }) {
 interface Found { national_id: string; name: string; academic_no: string | null }
 
 const MAX_BULK = 300
-const SHORTCUTS = 'كليك = اختيار كرسي · Shift+كليك = من آخر كرسي لحد ده · Ctrl+كليك = إضافة/شيل · كليك على رقم الصف أو حرف البلوك = الصف/البلوك كله'
+const SHORTCUTS = 'اختار عدد الكراسي على عدد اللي هتحجز لهم.'
 
 /** typed Arabic letters match every spelling of them (ا أ إ آ · ى ي · ة ه), so the search finds the name however it was typed */
 const fuzzyArabic = (t: string) => t.replace(/[اأإآ]/g, '_').replace(/[يى]/g, '_').replace(/[ةه]/g, '_')
@@ -367,13 +367,13 @@ function ManualBooking({ defaultEventId, onClose, onDone }: { defaultEventId: st
           <div className="flex items-center justify-between mb-1">
             <span className="text-sm font-semibold">الطلاب {need > 0 && <span className="text-muted font-normal">({need})</span>}</span>
             <div className="flex items-center gap-3 text-xs">
-              <button className="underline text-muted hover:text-ink" onClick={() => setPaste(paste === null ? '' : null)}>لصق أرقام كتير</button>
+              <button className="underline text-muted hover:text-ink" onClick={() => setPaste(paste === null ? '' : null)}>bulk add</button>
               {need > 0 && <button className="underline text-muted hover:text-ink" onClick={() => setStudents([])}>مسح الكل</button>}
             </div>
           </div>
           <div className="relative">
             <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted" />
-            <input ref={input} className={`${lightInputCls} pr-10`} placeholder="ابحث بالاسم / الرقم القومي / الرقم الأكاديمي — كليك أو Enter يضيف الطالب" value={q} autoFocus
+            <input ref={input} className={`${lightInputCls} pr-10`} placeholder="ابحث بالاسم / الرقم القومي / الرقم الأكاديمي" value={q} autoFocus
               onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && results[0]) { e.preventDefault(); addStudent(results[0]) } }} />
             {searching && <Spinner className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4" />}
           </div>
