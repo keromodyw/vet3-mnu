@@ -14,7 +14,7 @@ export default function Home() {
   const [student, setStudent] = useState<Student | null>(getStudent())
   const now = useNow()
 
-  const events = useLive(() => rpc<EventRow[]>('md_events_overview'), [{ table: 'seats' }, { table: 'events' }], 10000)
+  const events = useLive(() => rpc<EventRow[]>('md_events_overview'), [{ table: 'events' }], 20000)
   const mine = useLive(
     async () => (student ? rpc<Booking[]>('md_my_bookings', { p_nid: student.national_id }) : []),
     [{ table: 'booking_pulse' }], 8000)

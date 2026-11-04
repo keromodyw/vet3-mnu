@@ -6,10 +6,11 @@ import SeatMap, { HallPanel, seatView } from '../components/SeatMap'
 import StudentLogin from '../components/StudentLogin'
 import { toast } from '../components/feedback'
 import { btnGhost, btnPrimary, card, FullLoader, Shell, Spinner, Stepper, stepLabels, ThemeToggle } from '../components/ui'
-import { clearStudent, errText, eventPhase, fetchSeats, getStudent, rpc, type Booking, type EventRow, type Student } from '../lib/api'
+import { clearStudent, errText, eventPhase, getStudent, rpc, type Booking, type EventRow, type Student } from '../lib/api'
 import { compressImage } from '../lib/image'
 import { sectionKeys } from '../lib/layout'
 import { useLive } from '../lib/live'
+import { useLiveSeats } from '../lib/liveSeats'
 import { feedbackBad, feedbackOk, feedbackWarn } from '../lib/sound'
 import { supabase } from '../lib/supabase'
 import { fmtCountdown, formatCairo, serverNow, useNow } from '../lib/time'
@@ -33,7 +34,8 @@ export default function Book() {
   const event = ev.data
   const seatsMode = event?.booking_mode !== 'names'
   const payment = event?.payment_required !== false
-  const seatsLive = useLive(() => (seatsMode ? fetchSeats(eventId) : Promise.resolve([])), [{ table: 'seats', filter: `event_id=eq.${eventId}` }], 6000)
+  // live map: every change is applied the moment it happens; a full re-download only on connect / tab focus / every ~15 s / after a "chair taken" error
+  const seatsLive = useLiveSeats(eventId, seatsMode)
   const seats = seatsLive.data || []
   // section tabs: only the blocks that actually have seats, in map order (left → right)
   const secKeys = useMemo(() => sectionKeys(seats), [seats])
@@ -98,7 +100,7 @@ export default function Book() {
       if (!payment) return await finishWithoutPayment(b)
       feedbackOk(); setBooking(b); setStep('pay')
     } catch (e) {
-      feedbackBad(); toast(errText(e), 'error'); setSelected(null); void seatsLive.reload(); void ev.reload()
+      feedbackBad(); toast(errText(e), 'error'); setSelected(null); void seatsLive.reload(); void ev.reload()   // refresh the map right away, whatever the error
     } finally { setBusy(false) }
   }
 
