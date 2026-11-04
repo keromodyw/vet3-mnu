@@ -29,13 +29,16 @@ export function useRealtime(specs: Array<string | LiveSpec>, onChange: () => voi
       if (status === 'SUBSCRIBED') cb.current() // catch anything missed while connecting
     })
 
-    const poll = window.setInterval(() => cb.current(), intervalMs)
+    // safety-net poll: ±25 % random spread (thousands of phones never ask in the same second) and paused while the tab is hidden
+    let poll = 0
+    const arm = () => { poll = window.setTimeout(() => { if (document.visibilityState === 'visible') cb.current(); arm() }, intervalMs * (0.75 + Math.random() * 0.5)) }
+    arm()
     const onVisible = () => { if (document.visibilityState === 'visible') cb.current() }
     document.addEventListener('visibilitychange', onVisible)
     window.addEventListener('online', fire)
     return () => {
       window.clearTimeout(timer)
-      window.clearInterval(poll)
+      window.clearTimeout(poll)
       document.removeEventListener('visibilitychange', onVisible)
       window.removeEventListener('online', fire)
       supabase.removeChannel(channel)
