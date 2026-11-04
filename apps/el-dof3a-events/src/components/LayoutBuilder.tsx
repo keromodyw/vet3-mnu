@@ -109,7 +109,7 @@ export default function LayoutBuilder({ eventId, event, hasSeats, onApplied }: {
         <button className={btnGhost} disabled={!tpl || busy} onClick={useTemplate}>استخدم</button>
         <button className={btnGhost} disabled={!tpl || busy} onClick={removeTemplate} aria-label="امسح التصميم"><Trash2 className="w-4 h-4 text-red-600 dark:text-red-300" /></button>
         <label className="text-xs text-muted min-w-[11rem]">اسم التصميم
-          <input className={`${inputCls} mt-1 !py-2`} value={name} onChange={(e) => setName(e.target.value)} placeholder="مثال: القاعة الكبيرة" />
+          <input className={`${inputCls} mt-1 !py-2`} value={name} onChange={(e) => setName(e.target.value)} placeholder="مثال: المسرح" />
         </label>
         <button className={btnGhost} disabled={busy} onClick={save}><Save className="w-4 h-4" /> احفظ التصميم</button>
       </div>
@@ -162,7 +162,6 @@ export default function LayoutBuilder({ eventId, event, hasSeats, onApplied }: {
 
       <div className="flex flex-wrap items-center gap-3 pt-2 border-t border-line">
         <button className={btnPrimary} disabled={busy} onClick={apply}><Wand2 className="w-4 h-4" /> طبّق التصميم</button>
-        <p className="text-xs text-muted flex-1 leading-relaxed">«ممر كل» بيحط ممر جوه البلوك بعد كل عدد الكراسي ده (0 = مفيش). التصميم بيتحفظ باسم وتقدر تستخدمه في أي إيفينت.</p>
       </div>
     </div>
   )
