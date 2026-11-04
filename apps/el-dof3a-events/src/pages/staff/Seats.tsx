@@ -119,7 +119,7 @@ export default function Seats() {
   }
   const exportMap = (showStatus: boolean) => {
     if (!seats.length) return toast('مفيش خريطة للتصدير', 'info')
-    if (!printSeatMapPdf({ title: ev.data?.title || 'خريطة القاعة', seats, now, showStatus, dir: ev.data?.numbering_dir || 'rtl' })) toast('اسمح بالنوافذ المنبثقة', 'error')
+    if (!printSeatMapPdf({ title: ev.data?.title || 'خريطة القاعة', seats, now, showStatus, dir: ev.data?.numbering_dir || 'rtl', spec: ev.data?.layout_spec })) toast('اسمح بالنوافذ المنبثقة', 'error')
   }
   const saveCap = async () => {
     const v = (cap ?? '').trim()
