@@ -1,5 +1,5 @@
 import type { Seat } from './api'
-import { sectionKeys } from './layout'
+import { sectionKeys, type LayoutSpec } from './layout'
 
 /**
  * Prints the hall map (opens the print dialog → "Save as PDF").
@@ -37,7 +37,7 @@ const chair = (fill: string, x: number, y: number, n: string, dim: boolean) => `
   ${dim ? '<path d="M8 8 L32 32 M32 8 L8 32" stroke="#64748b" stroke-width="3.5" stroke-linecap="round"/>' : `<text x="20" y="31" text-anchor="middle" font-size="15" font-weight="800" fill="#fff" font-family="Cairo, sans-serif">${esc(n)}</text>`}
 </g>`
 
-function hallSvg(seats: Seat[], now: number, showStatus: boolean) {
+function hallSvg(seats: Seat[], now: number, showStatus: boolean, spec?: LayoutSpec | null) {
   const maxPos: Record<string, number> = {}
   const byRow = new Map<number, Record<string, Seat[]>>()
   for (const s of seats) {
@@ -49,6 +49,8 @@ function hallSvg(seats: Seat[], now: number, showStatus: boolean) {
   const rows = [...byRow.entries()].sort(([a], [b]) => a - b)
   const secW = (k: string) => Math.max(SEAT, (maxPos[k] || 0) * (SEAT + GAP) - GAP)
   const mid = (blocks.length - 1) / 2
+  const look = (k: string) => spec?.blocks.find((b) => String(b.key).toUpperCase() === k)
+  const tiltOf = (k: string) => Number(look(k)?.tilt) || 0
   const hallW = 2 * LABEL + (blocks.length + 1) * AISLE + blocks.reduce((n, b) => n + secW(b), 0)
 
   const left: Record<string, number> = {}
@@ -57,6 +59,8 @@ function hallSvg(seats: Seat[], now: number, showStatus: boolean) {
 
   const top = 92                          // screen + block letters
   const out: string[] = []
+  const blockOut: Record<string, string[]> = {}
+  for (const k of blocks) blockOut[k] = []
 
   // screen
   const sw = Math.round(Math.min(640, Math.max(220, hallW * 0.8)))
@@ -65,31 +69,50 @@ function hallSvg(seats: Seat[], now: number, showStatus: boolean) {
   out.push(`<text x="${hallW / 2}" y="68" text-anchor="middle" font-size="11" letter-spacing="5" fill="#64748b" font-family="Cairo, sans-serif">SCREEN · الشاشة</text>`)
 
   // block letters
-  for (const k of blocks) out.push(`<text x="${left[k] + secW(k) / 2}" y="${top - 6}" text-anchor="middle" font-size="17" font-weight="900" fill="#0f172a" font-family="Cairo, sans-serif">${esc(k)}</text>`)
+  for (const k of blocks) blockOut[k].push(`<text x="${left[k] + secW(k) / 2}" y="${top - 6}" text-anchor="middle" font-size="17" font-weight="900" fill="#0f172a" font-family="Cairo, sans-serif">${esc(k)}</text>`)
 
   rows.forEach(([no, by], ri) => {
     const y = top + ri * (SEAT + ROW_GAP)
-    for (const lx of [LABEL / 2, hallW - LABEL / 2]) out.push(`<text x="${lx}" y="${y + SEAT / 2 + 4}" text-anchor="middle" font-size="12" font-weight="700" fill="#64748b" font-family="Cairo, sans-serif">${no}</text>`)
+    // outer row numbers sit with the first / last block, so they turn with it
+    const lastK = blocks.length - 1
+    ;[[0, LABEL / 2], [lastK, hallW - LABEL / 2]].forEach(([bi, lx]) => {
+      blockOut[blocks[bi]].push(`<text x="${lx}" y="${y + SEAT / 2 + 4}" text-anchor="middle" font-size="12" font-weight="700" fill="#64748b" font-family="Cairo, sans-serif">${no}</text>`)
+    })
     blocks.forEach((k, bi) => {
       const list = (by[k] || []).sort((a, b) => a.pos - b.pos)
       if (!list.length) return
       // the same packing the screen uses: holes in `pos` are empty space, the row hugs the middle aisle
-      let groupW = 0, prev = 0
+      // "center" blocks: the row sits in the middle of the block (the leading gap is ignored), like on screen
+      const centred = !!look(k)?.center
+      let groupW = 0, prev = centred ? list[0].pos - 1 : 0
       for (const s of list) { groupW += Math.max(0, s.pos - prev - 1) * (SEAT + GAP) + SEAT; prev = s.pos }
       const room = secW(k)
-      let cx = left[k] + (blocks.length === 1 || bi === mid ? (room - groupW) / 2 : bi < mid ? room - groupW : 0)
-      prev = 0
+      let cx = left[k] + (centred || blocks.length === 1 || bi === mid ? (room - groupW) / 2 : bi < mid ? room - groupW : 0)
+      prev = centred ? list[0].pos - 1 : 0
       for (const s of list) {
         cx += Math.max(0, s.pos - prev - 1) * (SEAT + GAP); prev = s.pos
         const kind = kindOf(s, now, showStatus)
-        out.push(chair(C[kind], cx, y, String(s.seat_no), kind === 'blocked'))
+        blockOut[k].push(chair(C[kind], cx, y, String(s.seat_no), kind === 'blocked'))
         cx += SEAT
       }
     })
   })
 
-  const h = top + rows.length * (SEAT + ROW_GAP) + 6
-  return { svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${hallW} ${h}" class="hall">${out.join('')}</svg>`, hallW, h }
+  // a turned block pivots on its inner top corner (the one next to the middle block), exactly like the screen
+  const colH = rows.length * (SEAT + ROW_GAP)
+  let padX = 0, padB = 0
+  blocks.forEach((k, bi) => {
+    const t = tiltOf(k)
+    if (t) {
+      const px = bi < mid ? left[k] + secW(k) : left[k]
+      out.push(`<g transform="rotate(${t} ${px} ${top})">${blockOut[k].join('')}</g>`)
+      const r = Math.abs(t) * Math.PI / 180
+      padX = Math.max(padX, Math.sin(r) * colH); padB = Math.max(padB, Math.sin(r) * secW(k))
+    } else out.push(blockOut[k].join(''))
+  })
+  padX = Math.ceil(padX); padB = Math.ceil(padB)
+  const h = top + colH + 6 + padB
+  return { svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${-padX} 0 ${hallW + 2 * padX} ${h}" class="hall">${out.join('')}</svg>`, hallW, h }
 }
 
 export interface MapPdfOptions {
@@ -100,14 +123,16 @@ export interface MapPdfOptions {
   showStatus?: boolean
   /** numbering of each row-block: from the right edge (rtl) or the left edge (ltr) */
   dir?: 'rtl' | 'ltr'
+  /** the design the hall was built from (centred rows, tilted blocks) */
+  spec?: LayoutSpec | null
 }
 
-export function printSeatMapPdf({ title, seats, now, showStatus = true, dir = 'rtl' }: MapPdfOptions): boolean {
+export function printSeatMapPdf({ title, seats, now, showStatus = true, dir = 'rtl', spec }: MapPdfOptions): boolean {
   if (!seats.length) return false
   const w = window.open('', '_blank')
   if (!w) return false
 
-  const { svg } = hallSvg(seats, now, showStatus)
+  const { svg } = hallSvg(seats, now, showStatus, spec)
   const cnt = { total: seats.length, blocked: 0, booked: 0, male: 0, female: 0 }
   for (const s of seats) {
     const k = kindOf(s, now, true)
