@@ -46,14 +46,16 @@ function Screen({ width }: { width: number }) {
   )
 }
 
-const tiltCache = new Map<string, Record<string, number>>()
-/** block → degrees, read once per event from the design that built the hall (no tilt when there is none) */
-function useBlockTilts(eventId?: string, rev?: string): Record<string, number> {
+type BlockLook = { tilt: Record<string, number>; center: Record<string, boolean> }
+const lookCache = new Map<string, BlockLook>()
+const NO_LOOK: BlockLook = { tilt: {}, center: {} }
+/** block tilt + centring, read once per event from the design that built the hall (no tilt when there is none) */
+function useBlockLook(eventId?: string, rev?: string): BlockLook {
   const key = `${eventId}:${rev}`            // a re-applied design makes new chairs → new rev → fresh read
-  const [t, setT] = useState<Record<string, number>>(() => tiltCache.get(key) || {})
+  const [t, setT] = useState<BlockLook>(() => lookCache.get(key) || NO_LOOK)
   useEffect(() => {
     if (!eventId) return
-    const hit = tiltCache.get(key)
+    const hit = lookCache.get(key)
     if (hit) { setT(hit); return }
     let live = true
     void (async () => {
@@ -62,7 +64,7 @@ function useBlockTilts(eventId?: string, rev?: string): Record<string, number> {
         const spec = (data?.layout_spec ?? null) as LayoutSpec | null
         const m: Record<string, number> = {}
         for (const b of spec?.blocks ?? []) if (b.tilt) m[String(b.key).toUpperCase()] = Number(b.tilt) || 0
-        tiltCache.set(key, m)
+        lookCache.set(key, m)
         if (live) setT(m)
       } catch { /* no tilt */ }
     })()
@@ -114,7 +116,7 @@ export default function SeatMap({ seats, now, gender, mineId, selectedIds, onSea
     })
     return { rows, blocks, maxPos }
   }, [seats])
-  const tilts = useBlockTilts(seats[0]?.event_id, seats[0]?.id)
+  const { tilt: tilts, center: centered } = useBlockLook(seats[0]?.event_id, seats[0]?.id)
   const secW = (k: string) => Math.max(SEAT, (maxPos[k] || 0) * (SEAT + GAP) - GAP)
   const mid = (blocks.length - 1) / 2
   // the whole hall, in px: labels + aisles + blocks (the screen is sized from this, so it is part of the fixed hall)
@@ -300,7 +302,7 @@ export default function SeatMap({ seats, now, gender, mineId, selectedIds, onSea
                   {rows.map((r) => {
                     const list = r.by[k] || []
                     return (
-                      <div key={r.no} className={`flex items-center ${justify(bi)}`} style={{ height: SEAT }}>
+                      <div key={r.no} className={`flex items-center ${centered[k] ? 'justify-center' : justify(bi)}`} style={{ height: SEAT }}>
                         {list.map((st, i) => {
                           const v = seatView(st, now)
                           const booked = v === 'held' || v === 'taken'
@@ -312,7 +314,7 @@ export default function SeatMap({ seats, now, gender, mineId, selectedIds, onSea
                           const hidden = v === 'blocked' && student && !selected && !mine
                           const looksBooked = booked || wrongGender   // students only ever see: free / booked / mine
                           // an aisle is just a hole in the position sequence → draw it as empty space
-                          const hole = Math.max(0, st.pos - (i ? list[i - 1].pos : 0) - 1)
+                          const hole = i === 0 && centered[k] ? 0 : Math.max(0, st.pos - (i ? list[i - 1].pos : 0) - 1)
 
                           let chair: string
                           if (selected || mine) chair = 'text-yellow-300 seat-selected'

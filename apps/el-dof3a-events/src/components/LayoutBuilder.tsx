@@ -139,6 +139,7 @@ export default function LayoutBuilder({ eventId, event, hasSeats, onApplied }: {
             <Num label="ممر كل" value={b.aisleEvery} min={0} max={MAX_BLOCK_SEATS} onChange={(n) => patch(i, { aisleEvery: n })} />
             <Num label="عرض الممر" value={b.aisleWidth} min={0} max={4} onChange={(n) => patch(i, { aisleWidth: n })} w="w-16" />
             <Num label="ميل ° ناحية الشاشة" value={b.tilt ?? 0} min={-30} max={30} onChange={(n) => patch(i, { tilt: n || undefined })} w="w-24" />
+            <label className="text-xs text-muted flex items-center gap-1.5 pb-2.5"><input type="checkbox" checked={!!b.center} onChange={(e) => patch(i, { center: e.target.checked || undefined })} /> الصفوف في النص</label>
             <label className="text-xs text-muted min-w-[12rem] flex-1">كراسي كل صف (اختياري، بفواصل)
               <input className={`${inputCls} mt-1 !py-2 tabular-nums`} dir="ltr" placeholder="مثال: 3,3,4,4,5"
                 value={b.counts ? b.counts.join(',') : ''}
