@@ -179,6 +179,7 @@ ${svg}
   <div class="box"><h2>إزاي تقرا رقم الكرسي</h2>
     <div class="code"><span class="big">${esc(ex.key)}${ex.row}-${ex.no}</span></div>
     <div class="parts"><div><b>${esc(ex.key)}</b>البلوك (الحرف فوق)</div><div><b>${ex.row}</b>رقم الصف (على الجنب)</div><div><b>${ex.no}</b>رقم الكرسي جوه الصف</div></div>
+        <div class="note">###</div>
   </div>
 </div>
 </body></html>`)
