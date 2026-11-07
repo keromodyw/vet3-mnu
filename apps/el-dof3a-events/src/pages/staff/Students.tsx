@@ -6,11 +6,13 @@ import StaffLayout from '../../components/StaffLayout'
 import { confirmDialog, toast } from '../../components/feedback'
 import { Badge, btnGhost, btnPrimary, card, FullLoader, inputCls, lightInputCls, Spinner } from '../../components/ui'
 import { BATCH_AR, batchOf, errText } from '../../lib/api'
-import { useLive } from '../../lib/live'
+import { pageAll, useLive } from '../../lib/live'
 import { supabase } from '../../lib/supabase'
 
 interface S { national_id: string; name: string; academic_no: string | null }
-interface Parsed { valid: S[]; invalid: Array<{ row: number; why: string }> }
+interface Parsed { valid: S[]; invalid: Array<{ row: number; why: string }>; duplicates: number; noId: number }
+/** a student with no national id yet gets a unique stand-in built from the academic number: 0 + 13 digits (real ids start with 2 or 3) */
+const isFiller = (id: string) => id.startsWith('0')
 
 const norm = (s: unknown) => String(s ?? '').toLowerCase().replace(/[أإآ]/g, 'ا').replace(/\s+/g, '')
 const isNidHeader = (h: string) => /قومي|national|nid|^id$|رقم_?قومي/.test(h)
@@ -29,17 +31,27 @@ function parseSheet(rows: unknown[][]): Parsed {
   }
   const byNid = new Map<string, S>()
   const invalid: Parsed['invalid'] = []
+  let duplicates = 0
   for (let i = start; i < rows.length; i++) {
     const r = rows[i] || []
     if (r.every((c) => String(c ?? '').trim() === '')) continue
     const n = String(r[name] ?? '').trim()
-    const id = String(r[nid] ?? '').replace(/\D/g, '')
+    let id = String(r[nid] ?? '').replace(/\D/g, '')
     const a = String(r[acad] ?? '').trim()
+    const aDigits = a.replace(/\D/g, '')
     if (!n) { invalid.push({ row: i + 1, why: 'الاسم فاضي' }); continue }
-    if (!/^\d{14}$/.test(id)) { invalid.push({ row: i + 1, why: `الرقم القومي غير صحيح (${String(r[nid] ?? '') || 'فاضي'})` }); continue }
+    if (/^0*$/.test(id)) {
+      // blank / 0 / 00000000000000 → no national id yet: the student will enter it at first login
+      if (!aDigits || aDigits.length > 13) { invalid.push({ row: i + 1, why: 'مفيش رقم قومي ولا رقم أكاديمي صالح' }); continue }
+      id = '0' + aDigits.padStart(13, '0')
+    } else if (!/^\d{14}$/.test(id) || isFiller(id)) {
+      invalid.push({ row: i + 1, why: `الرقم القومي غير صحيح (${String(r[nid] ?? '')})` }); continue
+    }
+    if (byNid.has(id)) duplicates++
     byNid.set(id, { national_id: id, name: n, academic_no: a || null })
   }
-  return { valid: [...byNid.values()], invalid }
+  const valid = [...byNid.values()]
+  return { valid, invalid, duplicates, noId: valid.filter((s) => isFiller(s.national_id)).length }
 }
 
 export default function Students() {
@@ -77,12 +89,30 @@ export default function Students() {
     if (!parsed?.valid.length) return
     setProgress(0)
     try {
-      for (let i = 0; i < parsed.valid.length; i += 500) {
-        const { error } = await supabase.from('students').upsert(parsed.valid.slice(i, i + 500), { onConflict: 'national_id' })
-        if (error) throw error
-        setProgress(Math.min(100, Math.round(((i + 500) / parsed.valid.length) * 100)))
+      // who is already in the database? (so re-importing never makes a second row for the same student)
+      const existing = await pageAll<{ national_id: string; academic_no: string | null }>((f, t) => supabase.from('students').select('national_id,academic_no').range(f, t))
+      const byAcad = new Map<string, string[]>()
+      for (const e of existing) { const k = (e.academic_no || '').trim(); if (k) byAcad.set(k, [...(byAcad.get(k) || []), e.national_id]) }
+      const replace: string[] = []                 // stand-in rows that a real national id now replaces
+      let skipped = 0
+      const rows = parsed.valid.filter((st) => {
+        const k = (st.academic_no || '').trim()
+        const others = k ? (byAcad.get(k) || []).filter((id) => id !== st.national_id) : []
+        if (isFiller(st.national_id)) { if (others.length) { skipped++; return false } return true }   // already there (maybe with a real id)
+        others.filter(isFiller).forEach((id) => replace.push(id))
+        return true
+      })
+      for (let i = 0; i < replace.length; i += 200) {
+        const chunk = replace.slice(i, i + 200)
+        const { error } = await supabase.from('students').delete().in('national_id', chunk)
+        if (error) for (const id of chunk) await supabase.from('students').delete().eq('national_id', id)   // one with a booking can't go; the rest do
       }
-      toast(`اتضاف/اتحدث ${parsed.valid.length} طالب ✅`); setParsed(null); void reload()
+      for (let i = 0; i < rows.length; i += 500) {
+        const { error } = await supabase.from('students').upsert(rows.slice(i, i + 500), { onConflict: 'national_id' })
+        if (error) throw error
+        setProgress(Math.min(100, Math.round(((i + 500) / rows.length) * 100)))
+      }
+      toast(`اتضاف/اتحدث ${rows.length} طالب ✅${skipped ? ` — ${skipped} كانوا موجودين قبل كده` : ''}`); setParsed(null); void reload()
     } catch (e) { toast(errText(e), 'error') } finally { setProgress(null) }
   }
 
@@ -127,7 +157,7 @@ export default function Students() {
         <div className={`${card} divide-y divide-line overflow-hidden`}>
           {(data?.rows || []).map((s) => (
             <div key={s.national_id} className="flex items-center gap-3 px-4 py-2.5">
-              <div className="flex-1 min-w-0"><div className="font-semibold truncate">{s.name}</div><div className="text-xs text-muted" dir="ltr" style={{ textAlign: 'right' }}>{s.national_id} · {s.academic_no || '—'}</div></div>
+              <div className="flex-1 min-w-0"><div className="font-semibold truncate">{s.name}</div><div className="text-xs text-muted" dir="ltr" style={{ textAlign: 'right' }}>{isFiller(s.national_id) ? 'لسه ما سجّلش رقمه القومي' : s.national_id} · {s.academic_no || '—'}</div></div>
               {batchOf(s.academic_no) && <Badge tone="sky">{BATCH_AR[batchOf(s.academic_no)!]}</Badge>}
               <button className="p-2 text-muted hover:text-red-600 dark:text-red-300" onClick={() => remove(s)}><Trash2 className="w-4 h-4" /></button>
             </div>
@@ -141,6 +171,8 @@ export default function Students() {
           footer={<button className={`${btnPrimary} w-full`} disabled={!parsed.valid.length || progress !== null} onClick={doImport}>{progress !== null ? <><Spinner /> {progress}%</> : `استيراد ${parsed.valid.length} طالب`}</button>}>
           <div className="space-y-3 text-ink">
             <div className="p-3 rounded-xl bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 font-bold">صالح: {parsed.valid.length}</div>
+            {parsed.noId > 0 && <div className="p-3 rounded-xl bg-sky-500/10 text-sky-700 dark:text-sky-300 text-sm">{parsed.noId} طالب من غير رقم قومي — هيكتبوه بنفسهم أول ما يدخلوا بالرقم الأكاديمي.</div>}
+            {parsed.duplicates > 0 && <div className="p-3 rounded-xl bg-amber-500/10 text-amber-700 dark:text-amber-300 text-sm">{parsed.duplicates} صف مكرر اتجاهل (آخر واحد هو اللي اتاخد).</div>}
             {parsed.invalid.length > 0 && (
               <div className="p-3 rounded-xl bg-red-500/10 text-red-700 dark:text-red-300 text-sm">
                 <b>تم تجاهل {parsed.invalid.length} صف:</b>
