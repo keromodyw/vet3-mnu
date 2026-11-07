@@ -319,15 +319,14 @@ export default function SeatMap({ seats, now, gender, mineId, selectedIds, onSea
                           const mine = mineId === st.id
                           const selected = !!selectedIds?.has(st.id)
                           const clickable = !readOnly && (admin ? true : v === 'free' && !wrongGender)
-                          const hidden = v === 'blocked' && student && !selected && !mine
-                          const looksBooked = booked || wrongGender   // students only ever see: free / booked / mine
+                          const looksBooked = booked || wrongGender || (student && v === 'blocked')   // students only ever see: free / booked / mine (locked chairs look booked too)
                           // an aisle is just a hole in the position sequence → draw it as empty space
                           const hole = i === 0 && centered[k] ? 0 : Math.max(0, st.pos - (i ? list[i - 1].pos : 0) - 1)
 
                           let chair: string
                           if (selected || mine) chair = 'text-yellow-300 seat-selected'
                           else if (readOnly) chair = v === 'blocked' ? 'text-slate-800' : booked ? MARK_CLS[marks?.[st.id] ?? 'pending'] : 'text-emerald-500'
-                          else if (v === 'blocked') chair = 'text-slate-800'
+                          else if (v === 'blocked' && !student) chair = 'text-slate-800'
                           else if (looksBooked) chair = 'text-slate-600'
                           else if (admin && st.restriction === 'male') chair = 'text-sky-500 group-hover:text-sky-400'
                           else if (admin && st.restriction === 'female') chair = 'text-pink-500 group-hover:text-pink-400'
@@ -337,7 +336,7 @@ export default function SeatMap({ seats, now, gender, mineId, selectedIds, onSea
                           return (
                             <button key={st.id} type="button" disabled={!clickable} onClick={(e) => onSeat?.(st, e)} title={st.label} aria-label={`كرسي ${st.label}`}
                               style={{ width: SEAT, height: SEAT, marginInlineStart: hole ? hole * (SEAT + GAP) : undefined }}
-                              className={`group relative shrink-0 transition-transform ${selected || mine ? 'scale-110 z-10' : ''} ${hidden ? 'opacity-0 pointer-events-none' : ''} ${clickable ? 'cursor-pointer' : 'cursor-default'}`}>
+                              className={`group relative shrink-0 transition-transform ${selected || mine ? 'scale-110 z-10' : ''} ${clickable ? 'cursor-pointer' : 'cursor-default'}`}>
                               <Chair className={chair} />
                               {selected && <span className="pointer-events-none absolute -inset-1 rounded-xl ring-2 ring-yellow-300/80" />}
                               {showNum && v !== 'blocked' || (admin && v === 'blocked') ? <span className={`absolute inset-x-0 bottom-[4px] text-center text-[11px] leading-none font-extrabold tabular-nums ${selected || mine ? 'text-slate-900' : v === 'blocked' ? 'text-slate-600' : 'text-white/95'}`}>{st.seat_no}</span> : null}
