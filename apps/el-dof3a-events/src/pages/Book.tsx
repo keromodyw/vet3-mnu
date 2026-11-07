@@ -4,7 +4,7 @@ import { ArrowRight, Armchair, CalendarClock, Check, Copy, ImagePlus, MapPin, Ti
 import Modal from '../components/Modal'
 import SeatMap, { HallPanel, seatView } from '../components/SeatMap'
 import StudentLogin from '../components/StudentLogin'
-import { toast } from '../components/feedback'
+import { confirmDialog, toast } from '../components/feedback'
 import { btnGhost, btnPrimary, card, FullLoader, Shell, Spinner, Stepper, stepLabels, ThemeToggle } from '../components/ui'
 import { clearStudent, errText, eventPhase, getStudent, rpc, type Booking, type EventRow, type Student } from '../lib/api'
 import { compressImage } from '../lib/image'
@@ -165,7 +165,8 @@ export default function Book() {
       )}
 
       {step === 'pay' && student && booking && (
-        <PayStep booking={booking} student={student} seatsMode={seatsMode} onChange={backToChoice} onExpired={backToChoice} />
+        <PayStep booking={booking} student={student} seatsMode={seatsMode} onChange={backToChoice} onExpired={backToChoice}
+          onCancel={() => { toast('اتلغى الحجز'); navigate('/', { replace: true }) }} />
       )}
 
       {modal && student && seatsMode && (
@@ -233,13 +234,14 @@ function Tab({ active, label, count, onClick }: { active: boolean; label: string
   )
 }
 
-function PayStep({ booking, student, seatsMode, onChange, onExpired }: { booking: Booking; student: Student; seatsMode: boolean; onChange: () => void; onExpired: () => void }) {
+function PayStep({ booking, student, seatsMode, onChange, onExpired, onCancel }: { booking: Booking; student: Student; seatsMode: boolean; onChange: () => void; onExpired: () => void; onCancel: () => void }) {
   const navigate = useNavigate()
   const now = useNow()
   const [file, setFile] = useState<File | null>(null)
   const [preview, setPreview] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const submitting = useRef(false)
+  const [leaving, setLeaving] = useState<null | 'change' | 'cancel'>(null)
   const onExpiredRef = useRef(onExpired)
   onExpiredRef.current = onExpired
   const left = booking.hold_until ? new Date(booking.hold_until).getTime() - now : 0
@@ -261,6 +263,19 @@ function PayStep({ booking, student, seatsMode, onChange, onExpired }: { booking
     setPreview(u)
     return () => URL.revokeObjectURL(u)
   }, [file])
+
+  /** gives the held chair back to everyone right away (the server also drops the hold), then changes chair or leaves */
+  const leave = async (kind: 'change' | 'cancel') => {
+    if (busy || leaving) return
+    if (kind === 'cancel') {
+      const ok = await confirmDialog({ title: 'تلغي الحجز؟', message: seatsMode ? 'الكرسي هيرجع متاح للباقيين.' : 'مكانك هيرجع متاح للباقيين.', confirmText: 'إلغاء الحجز', danger: true })
+      if (!ok) return
+    }
+    setLeaving(kind)
+    try { await rpc('md_release_hold', { p_booking: booking.id, p_nid: student.national_id }) }
+    catch { /* already expired on the server: there is nothing left to free */ }
+    if (kind === 'change') onChange(); else onCancel()
+  }
 
   const copy = async () => {
     try { await navigator.clipboard.writeText(booking.instapay_phone || ''); toast('اتنسخ الرقم') } catch { toast('انسخ الرقم يدوي', 'info') }
@@ -297,7 +312,7 @@ function PayStep({ booking, student, seatsMode, onChange, onExpired }: { booking
             <div className={`text-2xl font-black tabular-nums ${left <= 60000 ? 'text-red-600 dark:text-red-300' : 'text-ink'}`} dir="ltr">{left > 0 ? fmtCountdown(left) : '00:00:00'}</div>
           </div>
         </div>
-        {seatsMode && <button className="text-xs text-muted hover:text-ink underline mt-3" onClick={onChange}>غيّر الكرسي</button>}
+        {seatsMode && <button className="text-xs text-muted hover:text-ink underline mt-3 disabled:opacity-50" disabled={busy || !!leaving} onClick={() => void leave('change')}>{leaving === 'change' ? 'بنحرّر الكرسي…' : 'غيّر الكرسي'}</button>}
       </div>
 
       <div className={`${card} p-5 space-y-3`}>
@@ -322,8 +337,11 @@ function PayStep({ booking, student, seatsMode, onChange, onExpired }: { booking
         {preview && <button className="text-xs text-muted hover:text-ink underline mt-2" onClick={() => setFile(null)}>غيّر الصورة</button>}
       </div>
 
-      <button className={`${btnPrimary} w-full py-4 text-lg`} disabled={busy || !file} onClick={submit}>
+      <button className={`${btnPrimary} w-full py-4 text-lg`} disabled={busy || !!leaving || !file} onClick={submit}>
         {busy ? <><Spinner /> جاري الإرسال...</> : 'إتمام الحجز'}
+      </button>
+      <button className={`${btnGhost} w-full`} disabled={busy || !!leaving} onClick={() => void leave('cancel')}>
+        {leaving === 'cancel' ? <><Spinner /> بنلغي الحجز…</> : 'إلغاء'}
       </button>
     </div>
   )
