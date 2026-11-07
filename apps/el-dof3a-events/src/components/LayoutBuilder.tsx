@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useState } from 'react'
+import { Fragment, useEffect, useRef, useState } from 'react'
 import { ArrowLeft, ArrowRight, LayoutGrid, Plus, Save, Trash2, Wand2 } from 'lucide-react'
 import { confirmDialog, toast } from './feedback'
 import { btnGhost, btnPrimary, card, inputCls, Spinner } from './ui'
@@ -7,6 +7,30 @@ import {
   MAX_BLOCKS, MAX_BLOCK_SEATS, MAX_ROWS, blockKey, nextBlockKey, sanitizeSpec, specSeats,
   type LayoutBlock, type LayoutSpec,
 } from '../lib/layout'
+
+/** "3,3,4,4,5" → chairs per row. Keeps its own text while you type (the saved list is padded to one number per row, which must not be written back into the box). */
+function CountsInput({ counts, rows, onChange }: { counts?: number[]; rows: number; onChange: (list: number[] | undefined) => void }) {
+  const show = (c?: number[]) => {
+    if (!c) return ''
+    const l = [...c]
+    while (l.length > 1 && l[l.length - 1] === 0) l.pop()      // rows that are not listed are 0 anyway
+    return l.join(',')
+  }
+  const [text, setText] = useState(() => show(counts))
+  const focused = useRef(false)
+  useEffect(() => { if (!focused.current) setText(show(counts)) }, [counts])      // template loaded / design reset
+  return (
+    <input className={`${inputCls} mt-1 !py-2 tabular-nums`} dir="ltr" inputMode="numeric" placeholder="مثال: 3,3,4,4,5" value={text}
+      onFocus={() => { focused.current = true }}
+      onBlur={() => { focused.current = false; setText(show(counts)) }}
+      onChange={(e) => {
+        const v = e.target.value.replace(/[^0-9,\s]/g, '')
+        setText(v)
+        const list = v.split(/[^0-9]+/).filter(Boolean).map((x) => Math.min(MAX_BLOCK_SEATS, Number(x))).slice(0, rows)
+        onChange(list.length ? Array.from({ length: rows }, (_, r) => list[r] ?? 0) : undefined)
+      }} />
+  )
+}
 
 interface Template { id: string; name: string; spec: LayoutSpec }
 
@@ -141,12 +165,7 @@ export default function LayoutBuilder({ eventId, event, hasSeats, onApplied }: {
             <Num label="ميل ° ناحية الشاشة" value={b.tilt ?? 0} min={-30} max={30} onChange={(n) => patch(i, { tilt: n || undefined })} w="w-24" />
             <label className="text-xs text-muted flex items-center gap-1.5 pb-2.5"><input type="checkbox" checked={!!b.center} onChange={(e) => patch(i, { center: e.target.checked || undefined })} /> الصفوف في النص</label>
             <label className="text-xs text-muted min-w-[12rem] flex-1">كراسي كل صف (اختياري، بفواصل)
-              <input className={`${inputCls} mt-1 !py-2 tabular-nums`} dir="ltr" placeholder="مثال: 3,3,4,4,5"
-                value={b.counts ? b.counts.join(',') : ''}
-                onChange={(e) => {
-                  const list = e.target.value.split(/[^0-9]+/).filter(Boolean).map((x) => Math.min(MAX_BLOCK_SEATS, Number(x)))
-                  patch(i, list.length ? { counts: Array.from({ length: spec.rows }, (_, r) => list[r] ?? 0), seats: list[0] } : { counts: undefined })
-                }} />
+              <CountsInput counts={b.counts} rows={spec.rows} onChange={(list) => patch(i, list ? { counts: list, seats: list[0] } : { counts: undefined })} />
             </label>
             <div className="flex gap-1 ms-auto">
               <button type="button" className={btnGhost} disabled={i === 0} onClick={() => move(i, -1)} title="حرّك للشمال"><ArrowLeft className="w-4 h-4" /></button>
