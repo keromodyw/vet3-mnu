@@ -162,6 +162,64 @@ begin
   return n;
 end $$;
 
+-- append a new row at the back using the event's design; safe even when there are active bookings
+create or replace function md_add_row(p_event uuid) returns int language plpgsql security definer set search_path = el_dof3a_events, public as $$
+declare
+  ev events; v_spec jsonb; v_new int; v_has boolean; nb numeric; n int := 0; v_next int; b jsonb; idx int; v_key text; v_n int; v_seats int; v_grow int; v_ae int; v_aw int; v_ms int; slot int; j int;
+begin
+  if coalesce(md_role(), '') <> 'super_admin' then raise exception 'forbidden'; end if;
+  select * into ev from events where id = p_event for update;
+  if not found then raise exception 'event_not_found'; end if;
+  v_spec := ev.layout_spec;
+  if v_spec is null or jsonb_typeof(v_spec->'blocks') <> 'array' then raise exception 'no_layout'; end if;
+  v_has := md_has_active(p_event);
+  select coalesce(max(row_no), 0) + 1 into v_new from seats where event_id = p_event;
+  if v_new < 1 then v_new := 1; end if;
+  nb := jsonb_array_length(v_spec->'blocks');
+  if nb < 1 then raise exception 'no_layout'; end if;
+
+  for idx in 0..(nb::int - 1) loop
+    b := v_spec->'blocks'->idx;
+    v_key := upper(coalesce(b->>'key', ''));
+    v_seats := coalesce((b->>'seats')::int, 0);
+    v_grow := coalesce((b->>'grow')::int, 0);
+    v_ae := coalesce((b->>'aisleEvery')::int, 0);
+    v_aw := coalesce((b->>'aisleWidth')::int, 1);
+    if jsonb_typeof(b->'counts') = 'array' and jsonb_array_length(b->'counts') >= v_new then
+      v_n := greatest(0, coalesce((b->'counts'->(v_new - 1))::int, 0));
+    else
+      v_n := greatest(0, v_seats + (v_new - 1) * v_grow);
+    end if;
+    if v_n < 1 then continue; end if;
+    v_ms := case when v_ae > 0 then (v_n - 1) + ((v_n - 1) / v_ae) * v_aw else (v_n - 1) end;
+    for j in 0..(v_n - 1) loop
+      slot := j + case when v_ae > 0 then (j / v_ae) * v_aw else 0 end;
+      select coalesce(max(seat_no), 0) + 1 into v_next from seats where event_id = p_event and section = v_key;
+      while exists (select 1 from seats where event_id = p_event and label = v_key || v_next) loop v_next := v_next + 1; end loop;
+      insert into seats(event_id, row_label, seat_no, label, sort_order, row_no, section, section_order, pos)
+      values (p_event, v_new::text, v_next, v_key || v_next, 0, v_new, v_key, idx,
+              case when idx < (nb - 1) / 2 then v_ms + 1 - slot else 1 + slot end);
+      n := n + 1;
+    end loop;
+  end loop;
+
+  v_spec := jsonb_set(v_spec, '{rows}', to_jsonb(v_new));
+  for idx in 0..(nb::int - 1) loop
+    b := v_spec->'blocks'->idx;
+    if jsonb_typeof(b->'counts') = 'array' then
+      while jsonb_array_length(b->'counts') < v_new loop
+        b := jsonb_set(b, '{counts}', (b->'counts') || to_jsonb(greatest(0, coalesce((b->>'seats')::int, 0) + (jsonb_array_length(b->'counts')) * coalesce((b->>'grow')::int, 0))));
+      end loop;
+      v_spec := jsonb_set(v_spec, array['blocks', idx::text], b);
+    end if;
+  end loop;
+  update events set layout_spec = v_spec where id = p_event;
+
+  if not v_has then perform md_renumber(p_event);
+  else update seats set sort_order = row_no * 1000000 + section_order * 10000 + pos where event_id = p_event; end if;
+  return n;
+end $$;
+
 revoke execute on function md_check_spec(jsonb) from public, anon, authenticated;
-grant execute on function md_layouts(), md_save_layout(text, jsonb), md_delete_layout(uuid), md_apply_layout(uuid, jsonb), md_add_seats(uuid, uuid[], text) to authenticated;
+grant execute on function md_layouts(), md_save_layout(text, jsonb), md_delete_layout(uuid), md_apply_layout(uuid, jsonb), md_add_seats(uuid, uuid[], text), md_add_row(uuid) to authenticated;
 notify pgrst, 'reload schema';
