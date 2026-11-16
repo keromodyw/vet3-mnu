@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { ArrowRight, ArrowLeftToLine, ArrowRightToLine, Ban, CheckCheck, FileText, Keyboard, ListOrdered, Mars, Trash2, Unlock, Venus } from 'lucide-react'
+import { ArrowRight, ArrowLeftToLine, ArrowRightToLine, Ban, CheckCheck, FileText, Keyboard, ListOrdered, Mars, Plus, Trash2, Unlock, Venus } from 'lucide-react'
 import LayoutBuilder from '../../components/LayoutBuilder'
 import SeatMap, { HallPanel, seatView } from '../../components/SeatMap'
 import StaffLayout from '../../components/StaffLayout'
@@ -113,6 +113,13 @@ export default function Seats() {
       setSel(new Set()); await seatsLive.reload()
     })
   }
+  const addRow = () => {
+    void run(async () => {
+      const n = await rpc<number>('md_add_row', { p_event: eventId })
+      toast(`اتضاف صف جديد (${n} كرسي) ✅`)
+      setSel(new Set()); await Promise.all([seatsLive.reload(), ev.reload()])
+    })
+  }
   const renumber = async () => {
     if (!(await confirmDialog({ title: 'إعادة ترقيم الكراسي؟', message: 'الأرقام هتترتب من جديد (A1-1 و A1-2 … وبتبدأ من 1 في كل صف). لو فيه تذاكر اتصدرت، الطلاب لازم ينزلوها تاني.', confirmText: 'إعادة الترقيم', danger: true }))) return
     void run(async () => { await rpc('md_renumber_event', { p_event: eventId }); toast('اتعاد الترقيم ✅'); await seatsLive.reload() })
@@ -179,6 +186,7 @@ export default function Seats() {
         <div className="flex-1" />
         {seats.length > 0 && <button className={btnGhost} onClick={() => exportMap(true)} title="خريطة بالألوان + طريقة قراءة الكراسي"><FileText className="w-4 h-4 text-red-600 dark:text-red-300" /> خريطة PDF</button>}
         {seats.length > 0 && <button className={btnGhost} onClick={() => exportMap(false)} title="من غير ألوان الحجز"><FileText className="w-4 h-4" /> خريطة PDF فاضية</button>}
+        {seats.length > 0 && <button className={btnGhost} disabled={busy} onClick={addRow}><Plus className="w-4 h-4" /> صف جديد</button>}
         {seats.length > 0 && <button className={btnGhost} disabled={busy} onClick={renumber}><ListOrdered className="w-4 h-4" /> إعادة الترقيم</button>}
       </div>
 
